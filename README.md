@@ -140,20 +140,8 @@ python3 -m unittest discover -s backend/tests -v
 python3 scripts/vexo_probe.py --json
 ```
 
-## Prior work disclosure
+## Sources
 
-GuideBand extends [GuideLens](https://github.com/k1lst1x/nvidia-dgx-spark-hackathon-2026), our 1st-place project at the SFBU NVIDIA DGX Spark Hackathon 2026. We disclose it as prior work.
-
-| | GuideLens (prior) | GuideBand (today) |
-| --- | --- | --- |
-| Form factor | Phone app, screen-first | Wearable, hands-free |
-| Input | Taps and camera | Voice through the Vexo bracelet |
-| Vision | Qwen-VL on DGX Spark | Local YOLO + Gemini Live |
-| Memory | Shared hazard reports | Personal recall |
-| Actions | None | Payments with spoken confirmation |
-
-GuideBand's identity, interaction model, interface and wearable/phone workflow were created for VexoHacks 2026. No SFBU or NVIDIA branding is used in this product.
-
-Sources: [Vexo developer docs](https://www.vexoai.com/docs), [Vexo hardware overview](https://www.vexoai.com/), [Android common intents](https://developer.android.com/guide/components/intents-common), [Android accessibility services](https://developer.android.com/guide/topics/ui/accessibility/service).
+[Vexo developer docs](https://www.vexoai.com/docs), [Vexo hardware overview](https://www.vexoai.com/), [Android common intents](https://developer.android.com/guide/components/intents-common), [Android accessibility services](https://developer.android.com/guide/topics/ui/accessibility/service).
 
 MIT licensed.
