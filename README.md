@@ -46,10 +46,14 @@ This table is the honest state of the repository, not the pitch.
 | Desktop shell (`desktop/`) | Built |
 | FastAPI service (`backend/`): command planning, tasks, events | Built |
 | Vexo USB probe (`scripts/vexo_probe.py`) | Built, read-only |
-| See — `POST /vision/analyze`: local YOLO hazard warnings plus a Gemini scene description, with fallbacks | Built in the backend; not yet connected to the phone camera or voice |
-| Remember — personal memory and recall | Planned |
-| Act — Stripe payment gated by a spoken yes | Planned |
-| Agent, Gemini Live and ElevenLabs integration | Planned |
+| See — local YOLO hazard warnings plus a Gemini scene description, with fallbacks | Built: `POST /vision/analyze`, live in the demo |
+| Remember — private text-only memory and recall | Built: `/memory`, "Where did I leave my keys?" in the demo |
+| Act — payment gated by a spoken yes | Built: quote, then pay only on yes. Simulated unless a Stripe **test** key is set; live keys are refused |
+| Assistant — one sentence in, one spoken reply out | Built: `POST /assistant` routes to see, recall, remember and pay |
+| Bridge — live captions and type-to-speech | Built in the demo (browser speech) |
+| Bridge — sign reading | Experimental: `POST /bridge/sign`, drops low-confidence readings |
+| Voice | Browser speech recognition and synthesis; ElevenLabs is planned |
+| Mastra agent, Gemini Live streaming | Planned. The assistant currently uses plain rules plus per-frame Gemini calls |
 | Vexo bracelet microphone and haptics | Blocked until Vexo supplies the hackathon SDK; the phone is the fallback |
 
 ## Repository layout
@@ -64,6 +68,26 @@ docs/       Product notes and research
 ```
 
 ## Run
+
+### Live demo
+
+The landing page has a working **Live demo** section: camera, voice, hazard warnings, memory, payments and Bridge. It needs the local service, which also serves the web app:
+
+```bash
+pip install -r backend/requirements.txt -r backend/requirements-vision.txt
+```
+
+```bash
+python -m uvicorn backend.app.main:app --port 8000
+```
+
+Open `http://localhost:8000/#demo` in Chrome, turn the camera on and ask: "What's in front of me?", "Remember this", "Where did I leave my keys?", "Buy me a coffee" and then "Yes".
+
+Set `GEMINI_API_KEY` in `backend/.env` first (see below). Without it, answers come from the on-device detector only. To charge a Stripe test card instead of simulating, set `STRIPE_SECRET_KEY` to an `sk_test_` key.
+
+On a phone, the camera and microphone need HTTPS: put the service behind a tunnel or a certificate rather than plain `http://<laptop-ip>:8000`.
+
+### Static pages only
 
 Serve the `web` folder:
 

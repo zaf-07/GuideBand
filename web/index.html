@@ -8,6 +8,7 @@
   <meta name="description" content="GuideBand is a hands-free AI assistant for blind and low-vision people. It sees hazards, remembers what it saw, and acts for you — only after a spoken yes.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="landing.css">
+  <link rel="stylesheet" href="live.css">
   <title>GuideBand — The AI that sees, remembers and acts for you</title>
 </head>
 <body>
@@ -26,10 +27,11 @@
       <ul class="nav-links">
         <li><a href="#features">What it does</a></li>
         <li><a href="#how">How it works</a></li>
+        <li><a href="#demo">Live demo</a></li>
         <li><a href="#trust">Trust</a></li>
         <li><a href="#get">Get the app</a></li>
       </ul>
-      <a class="btn btn-primary btn-small" href="app.html">Try the demo</a>
+      <a class="btn btn-primary btn-small" href="#demo">Try the demo</a>
     </nav>
   </header>
 
@@ -41,7 +43,7 @@
         <h1 id="heroTitle">The AI that sees, remembers and <span class="accent">acts for you.</span></h1>
         <p class="lede">A Vexo bracelet is your voice. A chest-clipped phone is your eyes. No screen to aim, no buttons to find — just talk, and GuideBand does the rest.</p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="app.html">
+          <a class="btn btn-primary" href="#demo">
             Try the live demo
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </a>
@@ -150,6 +152,119 @@
       </ol>
     </section>
 
+    <!-- Live demo -->
+    <section class="section container" id="demo" aria-labelledby="demoSectionTitle">
+      <div class="section-head">
+        <p class="eyebrow">Live demo</p>
+        <h2 id="demoSectionTitle">Try it. This one is real.</h2>
+        <p>Your camera, your voice, the real GuideBand service. Turn the camera on, then ask a question out loud or type it.</p>
+      </div>
+
+      <div class="live glass" id="live">
+        <div class="live-bar">
+          <p class="live-status" role="status"><span class="dot dot-off" id="liveDot"></span><span id="liveStatus">Checking the GuideBand service…</span></p>
+          <details class="live-settings">
+            <summary>Connection</summary>
+            <form id="apiForm">
+              <label for="apiInput">GuideBand service address</label>
+              <div class="row">
+                <input id="apiInput" type="url" inputmode="url" placeholder="http://localhost:8000" autocomplete="off">
+                <button class="btn btn-primary btn-small" type="submit">Save</button>
+              </div>
+            </form>
+          </details>
+        </div>
+
+        <div class="live-offline" id="liveOffline" hidden>
+          <h3>The GuideBand service is not running</h3>
+          <p>The demo needs the local service. From the project folder, run:</p>
+          <pre><code>python -m uvicorn backend.app.main:app --port 8000</code></pre>
+          <button class="btn btn-glass glass btn-small" type="button" id="retryBtn">Check again</button>
+        </div>
+
+        <div class="live-grid">
+          <!-- Camera -->
+          <div class="live-view">
+            <div class="stage">
+              <video id="liveVideo" playsinline muted aria-label="Camera preview"></video>
+              <canvas id="liveOverlay" aria-hidden="true"></canvas>
+              <p class="stage-empty" id="stageEmpty">Camera is off</p>
+              <p class="stage-warning" id="liveWarning" aria-live="assertive"></p>
+            </div>
+            <div class="live-controls">
+              <button class="btn btn-primary" type="button" id="camBtn">Turn camera on</button>
+              <label class="toggle"><input type="checkbox" id="hazardToggle" checked><span>Speak hazard warnings</span></label>
+              <label class="toggle"><input type="checkbox" id="voiceToggle" checked><span>Speak replies</span></label>
+              <label class="toggle"><input type="checkbox" id="autoRemember"><span>Remember what I see, every 20 seconds</span></label>
+            </div>
+          </div>
+
+          <!-- Panels -->
+          <div class="live-side">
+            <div class="tabs" role="tablist" aria-label="Demo mode">
+              <button class="tab" role="tab" type="button" id="tab-assistant" aria-controls="panel-assistant" aria-selected="true">Assistant</button>
+              <button class="tab" role="tab" type="button" id="tab-bridge" aria-controls="panel-bridge" aria-selected="false" tabindex="-1">Bridge</button>
+              <button class="tab" role="tab" type="button" id="tab-memory" aria-controls="panel-memory" aria-selected="false" tabindex="-1">Memory</button>
+            </div>
+
+            <div class="panel" role="tabpanel" id="panel-assistant" aria-labelledby="tab-assistant">
+              <ol class="log" id="liveLog" aria-live="polite" aria-label="Conversation">
+                <li class="msg msg-guide"><p>Hi, I’m GuideBand. Ask me what’s in front of you, where you left something, or to buy a coffee.</p></li>
+              </ol>
+              <div class="confirm" id="confirmBar" hidden>
+                <p id="confirmText">Pay?</p>
+                <div class="row">
+                  <button class="btn btn-glass glass btn-small" type="button" data-say="No">No, cancel</button>
+                  <button class="btn btn-primary btn-small" type="button" data-say="Yes">Yes, pay</button>
+                </div>
+              </div>
+              <div class="quick" role="group" aria-label="Example commands">
+                <button class="chip glass" type="button" data-say="What’s in front of me?">What’s in front of me?</button>
+                <button class="chip glass" type="button" data-say="Read the text you can see.">Read the text</button>
+                <button class="chip glass" type="button" data-say="Remember this.">Remember this</button>
+                <button class="chip glass" type="button" data-say="Where did I leave my keys?">Where are my keys?</button>
+                <button class="chip glass" type="button" data-say="Buy me a coffee.">Buy me a coffee</button>
+              </div>
+              <form class="ask" id="askForm">
+                <button class="mic" type="button" id="micBtn" aria-label="Talk to GuideBand" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21"/></svg>
+                </button>
+                <label class="visually-hidden" for="askInput">Type a command</label>
+                <input id="askInput" type="text" placeholder="Tap the mic, or type here" autocomplete="off" maxlength="300">
+                <button class="btn btn-primary btn-small" type="submit">Send</button>
+              </form>
+              <p class="hint" id="micHint"></p>
+            </div>
+
+            <div class="panel" role="tabpanel" id="panel-bridge" aria-labelledby="tab-bridge" hidden>
+              <p class="bridge-caption" id="bridgeCaption" aria-live="polite">Captions will appear here in large text.</p>
+              <div class="row wrap">
+                <button class="btn btn-primary btn-small" type="button" id="captionBtn" aria-pressed="false">Start live captions</button>
+                <button class="btn btn-glass glass btn-small" type="button" id="signBtn">Read a sign <span class="tag">Experimental</span></button>
+              </div>
+              <form class="ask" id="speakForm">
+                <label class="visually-hidden" for="speakInput">Type something to say aloud</label>
+                <input id="speakInput" type="text" placeholder="Type something to say aloud" autocomplete="off" maxlength="300">
+                <button class="btn btn-primary btn-small" type="submit">Speak</button>
+              </form>
+              <p class="hint">Sign reading uses the camera and can miss or misread signs. It never speaks a low-confidence guess.</p>
+            </div>
+
+            <div class="panel" role="tabpanel" id="panel-memory" aria-labelledby="tab-memory" hidden>
+              <p class="hint">Text notes only. No photos, video or audio are ever saved.</p>
+              <ul class="memory" id="memoryList"><li class="memory-empty">Nothing remembered yet.</li></ul>
+              <div class="row wrap">
+                <button class="btn btn-glass glass btn-small" type="button" id="memoryRefresh">Refresh</button>
+                <button class="btn btn-glass glass btn-small" type="button" id="memoryClear">Erase memory</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="live-privacy">Camera frames go to the GuideBand service on your own computer. When you ask a question, that single frame is also sent to Google Gemini for the answer. Nothing is recorded. Payments are test-mode only.</p>
+      </div>
+    </section>
+
     <!-- Trust -->
     <section class="section container" id="trust" aria-labelledby="trustTitle">
       <div class="trust glass">
@@ -247,5 +362,6 @@
   </footer>
 
   <script src="landing.js"></script>
+  <script src="live.js"></script>
 </body>
 </html>

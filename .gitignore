@@ -12,3 +12,4 @@ android/local.properties
 *.blockmap
 output/
 backend/models/*.pt
+backend/data/
