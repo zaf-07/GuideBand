@@ -237,7 +237,10 @@
       addLocation(body);
       const reply = await call('/assistant', { method: 'POST', body });
       pendingItem.remove();
-      const meta = reply.provider ? sources[reply.provider] + ' · ' + (reply.latency_ms / 1000).toFixed(1) + ' s' : '';
+      let meta = reply.provider ? sources[reply.provider] + ' · ' + (reply.latency_ms / 1000).toFixed(1) + ' s' : '';
+      if (reply.intent === 'pay_confirm' && reply.order) {
+        meta = reply.order.mode === 'stripe_test' ? 'Stripe test payment · ' + reply.order.status + ' · ' + reply.order.payment_id : 'Simulated payment';
+      }
       addMessage('guide', reply.say, meta);
       speak(reply.say);
       const waiting = reply.order && (reply.intent === 'pay_quote' || reply.intent === 'pay_waiting');

@@ -80,11 +80,16 @@ class Orders:
         return {**order, **receipt}
 
 
+def is_test_key(key: str) -> bool:
+    """Standard (sk_test_) and restricted (rk_test_) test keys. Live keys never pass."""
+    return key.startswith(('sk_test_', 'rk_test_'))
+
+
 async def charge(order: dict) -> dict:
     key = os.getenv('STRIPE_SECRET_KEY', '').strip()
     if not key:
         return {'mode': 'simulated', 'status': 'simulated', 'payment_id': None}
-    if not key.startswith('sk_test_'):
+    if not is_test_key(key):
         raise PaymentError('Only Stripe test keys are accepted. No payment was made.')
     import httpx
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:

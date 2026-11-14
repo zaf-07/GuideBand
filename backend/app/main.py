@@ -15,7 +15,7 @@ from .planner import plan
 from .services import bridge, llm, navigation, speech, vision
 from .services.assistant import Assistant
 from .services.memory import Memory
-from .services.payments import CATALOGUE, Orders, money
+from .services.payments import CATALOGUE, Orders, is_test_key, money
 from .services.wearable import status as wearable_status
 
 load_env()
@@ -71,7 +71,7 @@ def system_status():
         'wearable': wearable_status(),
         'modules': {'commands':'ready','journey':'demo','bridge':'ready','vision':vision.detector.status()['state']},
         'vision': {'detector': vision.detector.status(), 'cloud_providers': vision.configured_providers(), 'model': llm.model()},
-        'payments': {'mode': 'stripe_test' if stripe_key.startswith('sk_test_') else ('refused_live_key' if stripe_key else 'simulated'),
+        'payments': {'mode': 'stripe_test' if is_test_key(stripe_key) else ('refused_live_key' if stripe_key else 'simulated'),
                      'menu': [{'item': name, 'price': money(cents)} for name, cents in CATALOGUE.values()]},
         'memory': {'notes': len(memory.notes(1000)), 'objects': len(memory.sightings()), 'path_points': len(memory.path())},
         'navigation': {'maps': 'openstreetmap'},

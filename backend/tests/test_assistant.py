@@ -113,6 +113,12 @@ class PaymentTests(NoCloud):
         orders.quote('alice', 'buy a tea')
         self.assertIsNone(orders.pending('bob'))
 
+    def test_only_test_keys_are_accepted(self):
+        self.assertTrue(payments.is_test_key('sk_test_abc'))
+        self.assertTrue(payments.is_test_key('rk_test_abc'))
+        self.assertFalse(payments.is_test_key('sk_live_abc'))
+        self.assertFalse(payments.is_test_key('rk_live_abc'))
+
     def test_live_stripe_key_is_refused(self):
         with mock.patch.dict(os.environ, {'STRIPE_SECRET_KEY': 'sk_live_not_a_real_key'}):
             with self.assertRaises(PaymentError):
