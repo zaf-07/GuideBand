@@ -1,0 +1,27 @@
+{
+  "name": "guideband",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Voice-first accessibility layer for Android, web and desktop",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "web": "npx serve web",
+    "test": "python3 -m unittest discover -s backend/tests -v",
+    "desktop": "electron .",
+    "dist:desktop": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^39.2.3",
+    "electron-builder": "^26.0.12",
+    "serve": "^14.2.5"
+  },
+  "build": {
+    "appId": "ai.guideband.desktop",
+    "productName": "GuideBand",
+    "directories": { "output": "release" },
+    "files": ["desktop/**/*", "web/**/*", "package.json"],
+    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.lifestyle" },
+    "win": { "target": ["nsis", "portable"] },
+    "linux": { "target": ["AppImage", "deb"], "category": "Utility" }
+  }
+}
