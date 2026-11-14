@@ -46,7 +46,7 @@ This table is the honest state of the repository, not the pitch.
 | Desktop shell (`desktop/`) | Built |
 | FastAPI service (`backend/`): command planning, tasks, events | Built |
 | Vexo USB probe (`scripts/vexo_probe.py`) | Built, read-only |
-| See — local YOLO hazard detection | Planned |
+| See — `POST /vision/analyze`: local YOLO hazard warnings plus a Gemini scene description, with fallbacks | Built in the backend; not yet connected to the phone camera or voice |
 | Remember — personal memory and recall | Planned |
 | Act — Stripe payment gated by a spoken yes | Planned |
 | Agent, Gemini Live and ElevenLabs integration | Planned |
@@ -81,6 +81,8 @@ source .venv/bin/activate
 pip install -r backend/requirements.txt
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+For vision, copy `backend/.env.example` to `backend/.env` and set `GEMINI_API_KEY`. Local hazard detection additionally needs `pip install -r backend/requirements-vision.txt`; without it the endpoint answers through the cloud model only. If Gemini fails, the optional Groq provider is tried, then a sentence built from the local detections.
 
 On Windows PowerShell, activate with `.\.venv\Scripts\Activate.ps1` instead.
 
