@@ -251,19 +251,28 @@
             <div class="panel" role="tabpanel" id="panel-bridge" aria-labelledby="tab-bridge" hidden>
               <p class="hint" id="bridgeState" role="status">Bridge runs by itself: point the camera at the person signing, and just talk.</p>
               <div>
-                <p class="eyebrow">They signed</p>
+                <div class="row wrap bridge-head">
+                  <p class="eyebrow">They signed</p>
+                  <div class="sign-mode" role="radiogroup" aria-label="What to read">
+                    <label><input type="radio" name="signMode" value="words" checked><span>Signs</span></label>
+                    <label><input type="radio" name="signMode" value="letters"><span>Fingerspelling</span></label>
+                  </div>
+                  <button class="link-inline" type="button" id="signClear">Clear</button>
+                </div>
                 <p class="bridge-caption bridge-sign" id="signOut" aria-live="polite">—</p>
+                <p class="sign-live"><span id="signLive">No sign in view</span><span class="sign-meter" aria-hidden="true"><i id="signMeter"></i></span></p>
               </div>
               <div>
                 <p class="eyebrow">You said</p>
                 <p class="bridge-caption" id="bridgeCaption" aria-live="polite">What you say appears here in large text.</p>
+                <div class="spell" id="spellOut" aria-hidden="true"></div>
               </div>
               <form class="ask" id="speakForm">
                 <label class="visually-hidden" for="speakInput">Type something to say aloud</label>
-                <input id="speakInput" type="text" placeholder="Or type something to say aloud" autocomplete="off" maxlength="300">
+                <input id="speakInput" type="text" placeholder="Or type something to say and sign" autocomplete="off" maxlength="300">
                 <button class="btn btn-primary btn-small" type="submit">Speak</button>
               </form>
-              <p class="hint">Sign reading knows a small set of signs — hello, thank you, yes, no, please, sorry, help, I love you, good, stop, water, eat — and stays silent when it is not sure.</p>
+              <p class="hint">Signs are read on this device: Hello (open hand), Yes (thumb up), No (thumb down), Peace, I love you — or the ASL alphabet in Fingerspelling mode (J and Z need motion and are not read). Your speech is shown as text and as ASL fingerspelling. Alphabet images: Wikimedia Commons, public domain.</p>
             </div>
 
             <div class="panel" role="tabpanel" id="panel-family" aria-labelledby="tab-family" hidden>
@@ -391,6 +400,7 @@
   </footer>
 
   <script src="landing.js"></script>
+  <script src="signs.js"></script>
   <script src="live.js"></script>
 </body>
 </html>

@@ -111,6 +111,7 @@
     stage.classList.add('on');
     el('camBtn').textContent = 'Turn camera off';
     hazardLoop();
+    syncSigns();
   }
   function stopCamera() {
     stream?.getTracks().forEach(track => track.stop());
@@ -120,6 +121,7 @@
     el('camBtn').textContent = 'Turn camera on';
     el('liveWarning').textContent = '';
     overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+    syncSigns();
   }
   const cameraError = error => addMessage('error', error.name === 'NotAllowedError'
     ? 'Camera permission was denied. Allow the camera for this page and try again.' : error.message);
@@ -197,7 +199,7 @@
             body.append('describe', 'false');
             const scene = await call('/vision/analyze', { method: 'POST', body });
             if (!stream) break;
-            drawBoxes(scene.detections);
+            if (activeTab !== 'bridge') drawBoxes(scene.detections); // Bridge draws the hand instead
             if (scene.detections.some(d => d.label === 'person')) personSeenAt = Date.now();
             el('liveWarning').textContent = activeTab === 'bridge' ? '' : scene.warnings.join(' ');
             const fresh = scene.warnings.find(w => Date.now() - (spokenAt.get(w) || 0) > 8000);
@@ -299,7 +301,7 @@
     const wake = text.match(WAKE);
     if (activeTab === 'bridge') {
       // In a Bridge conversation everything said becomes large text for the other person.
-      el('bridgeCaption').textContent = text;
+      showSpeech(text);
       if (wake && wake[1].trim()) ask(wake[1]);
       return;
     }
@@ -347,34 +349,73 @@
     startMic();
   }
 
-  // ---------- Bridge: signs are spoken, speech becomes large text ----------
-  let signBusy = false, lastSign = '', lastSignAt = 0;
-  setInterval(async () => {
-    if (activeTab !== 'bridge' || !online || signBusy || busy) return;
-    if (!stream) return void (el('bridgeState').textContent = 'Turn the camera on so I can see signs.');
-    if (Date.now() - personSeenAt > 4000) return void (el('bridgeState').textContent = 'Waiting for someone in view…');
-    signBusy = true;
-    el('bridgeState').textContent = 'Watching for signs…';
+  // ---------- Bridge: signs are read on this device and spoken; speech becomes text and fingerspelling ----------
+  const signHandlers = {
+    onUpdate: state => {
+      el('signLive').textContent = state.current
+        ? state.current + ' · ' + Math.round(state.confidence * 100) + '% sure'
+        : 'No sign in view';
+      el('signMeter').style.width = Math.round(state.progress * 100) + '%';
+      el('signOut').textContent = state.text.trim() || '—';
+    },
+    onWord: word => { if (word) { speak(word.toLowerCase(), { force: true }); buzz(60); } },
+  };
+  async function syncSigns() {
+    if (activeTab !== 'bridge' || !stream) {
+      if (GuideSigns.running) GuideSigns.stop();
+      if (activeTab === 'bridge') el('bridgeState').textContent = 'Turn the camera on so I can see signs.';
+      return;
+    }
+    el('bridgeState').textContent = 'Loading the sign reader…';
     try {
-      const body = new FormData();
-      body.append('images', await frame(384), 'a.jpg');
-      await wait(350);
-      body.append('images', await frame(384), 'b.jpg');
-      const reading = await call('/bridge/sign', { method: 'POST', body });
-      if (reading.text && activeTab === 'bridge' && (reading.text !== lastSign || Date.now() - lastSignAt > 5000)) {
-        lastSign = reading.text; lastSignAt = Date.now();
-        el('signOut').textContent = reading.text;
-        speak(reading.text, { force: true });
-        buzz(60);
+      await GuideSigns.start(video, overlay, signHandlers);
+      el('bridgeState').textContent = 'Reading signs live, on this device.';
+    } catch {
+      el('bridgeState').textContent = 'The sign reader could not load. Check the internet connection and reopen Bridge.';
+    }
+  }
+  document.querySelectorAll('#live [name="signMode"]').forEach(radio => {
+    radio.onchange = () => { GuideSigns.setMode(radio.value); GuideSigns.clear(); };
+  });
+  el('signClear').onclick = () => GuideSigns.clear();
+
+  // Speech to sign: show what was said as ASL fingerspelling, one handshape per letter.
+  const signImage = letter => 'https://commons.wikimedia.org/wiki/Special:FilePath/Sign_language_' + letter + '.svg';
+  let spellRun = 0;
+  async function fingerspell(text) {
+    const run = ++spellRun, strip = el('spellOut');
+    const letters = text.toUpperCase().replace(/[^A-Z ]/g, '').replace(/ +/g, ' ').trim().slice(0, 60);
+    strip.replaceChildren();
+    for (const letter of letters) {
+      if (run !== spellRun) return; // something newer was said
+      if (letter === ' ') {
+        const gap = document.createElement('span');
+        gap.className = 'spell-gap';
+        strip.append(gap);
+        await wait(250);
+        continue;
       }
-    } catch {}
-    signBusy = false;
-  }, 500);
+      const card = document.createElement('figure'), image = new Image(), caption = document.createElement('figcaption');
+      card.className = 'spell-card';
+      image.alt = '';
+      image.onerror = () => image.remove(); // the letter itself still shows
+      image.src = signImage(letter);
+      caption.textContent = letter;
+      card.append(image, caption);
+      strip.append(card);
+      strip.scrollLeft = strip.scrollWidth;
+      await wait(380);
+    }
+  }
+  function showSpeech(text) {
+    el('bridgeCaption').textContent = text;
+    fingerspell(text);
+  }
   el('speakForm').onsubmit = e => {
     e.preventDefault();
     const text = el('speakInput').value.trim();
     if (!text) return;
-    el('bridgeCaption').textContent = text;
+    showSpeech(text);
     speak(text, { force: true });
     el('speakInput').value = '';
   };
@@ -492,6 +533,7 @@
     if (name === 'memory') loadMemory();
     if (name === 'family') loadContacts();
     if (name === 'bridge') el('liveWarning').textContent = '';
+    syncSigns();
     startMic(); // switching tabs never leaves the microphone off
   }
   tabs.forEach((tab, index) => {

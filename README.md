@@ -57,9 +57,9 @@ This table is the honest state of the repository, not the pitch.
 | Always-on microphone — one listener for every tab; acts on "Guide, …" | Built in the demo |
 | "Where am I?" — street address from GPS plus a description of the surroundings | Built |
 | Pay by code — the camera reads a payment QR code or a price tag, reads it back, and pays only on yes; refuses anything over the spending limit (`PAY_MAX_CENTS`, default $50) | Built: `GET /pay/qr.png` makes demo codes |
-| Family — contacts, and "Tell Mom where I am" by WhatsApp after a spoken yes | Built. WhatsApp opens with the message ready; the final Send tap is still manual |
+| Family — contacts, and "Tell Mom where I am" by WhatsApp after a spoken yes | Built. With Twilio credentials (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`) the message is delivered directly; without them WhatsApp opens with the message ready and the Send tap is manual |
 | Memory of requests and places visited — "Where was I today?", "What did I ask you?" | Built |
-| Bridge — two-way and automatic: known signs are spoken, speech becomes large text | Built in the demo. Signs come from a small fixed vocabulary; there is no English-to-sign output |
+| Bridge — two-way and automatic | Built in the demo. Signs are read on-device with MediaPipe hand landmarks: five whole-hand signs by finger shape, and ASL fingerspelling with the letter model from GuideLens (24 letters; J and Z need motion), each with a live confidence. Speech is shown as large text and as ASL fingerspelling images (Wikimedia Commons, public domain). This is not full sign-language translation |
 | Bridge — sign reading | Experimental: `POST /bridge/sign`, drops low-confidence readings |
 | Voice out | Built: ElevenLabs voice for replies and directions (`POST /speech`) when `ELEVENLABS_API_KEY` is set; hazard warnings and the fallback use the browser's local voice |
 | Voice in | Browser speech recognition in the demo; `POST /speech/transcribe` (ElevenLabs) is ready for microphones the browser cannot transcribe, such as the bracelet |

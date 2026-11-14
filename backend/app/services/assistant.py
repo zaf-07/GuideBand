@@ -14,7 +14,7 @@ import re
 import time
 from urllib.parse import quote
 
-from . import checkout, navigation, vision
+from . import checkout, messaging, navigation, vision
 from .memory import Memory
 from .payments import Orders, PaymentError
 
@@ -94,7 +94,8 @@ def message_body(text: str) -> str:
 
 class Assistant:
     def __init__(self, memory: Memory, orders: Orders, detector=None, navigator=None, place_name=None,
-                 read_frame=None) -> None:
+                 read_frame=None, send_whatsapp=None) -> None:
+        self.send_whatsapp = send_whatsapp or messaging.send_whatsapp
         self.navigator = navigator or navigation.Navigator()
         self.place_name = place_name or navigation.place_name
         self.read_frame = read_frame or checkout.read_frame
@@ -146,9 +147,7 @@ class Assistant:
             await self._compose_message(reply, session, text, location)
         elif intent == 'message_confirm':
             del self._messages[session]
-            reply['open_url'] = message['url']
-            reply['say'] = f'Opening WhatsApp with your message to {message["name"]}. Press send to deliver it.'
-            self.memory.add_note('message', f'Sent {message["name"]} a WhatsApp message: "{message["text"]}"')
+            await self._send_message(reply, message)
         elif intent == 'message_cancel':
             del self._messages[session]
             reply['say'] = 'Cancelled. Nothing was sent.'
@@ -224,12 +223,26 @@ class Assistant:
             body = (f'I am near {place}. ' if place else 'Here is where I am. ') + \
                    f'Map: https://maps.google.com/?q={location[0]:.5f},{location[1]:.5f} (sent with GuideBand)'
         self._messages[session] = {
-            'name': contact['name'], 'text': body, 'expires': time.time() + MESSAGE_TTL_SECONDS,
+            'name': contact['name'], 'phone': contact['phone'], 'text': body, 'expires': time.time() + MESSAGE_TTL_SECONDS,
             'url': f'https://wa.me/{contact["phone"]}?text={quote(body)}',
         }
         reply['confirm'] = f'Send to {contact["name"]} on WhatsApp?'
         spoken = body.split(' Map:')[0]
         reply['say'] = f'Message to {contact["name"]}: {spoken} Say yes to send, or no to cancel.'
+
+    async def _send_message(self, reply: dict, message: dict) -> None:
+        """The user said yes. Deliver directly when a message service is set up; otherwise open WhatsApp."""
+        if messaging.configured():
+            try:
+                await self.send_whatsapp(message['phone'], message['text'])
+                reply['say'] = f'Sent to {message["name"]} on WhatsApp.'
+                self.memory.add_note('message', f'Sent {message["name"]} a WhatsApp message: "{message["text"]}"')
+                return
+            except messaging.MessageError:
+                pass  # fall back to the prepared chat below
+        reply['open_url'] = message['url']
+        reply['say'] = f'Your message to {message["name"]} is ready in WhatsApp.'
+        self.memory.add_note('message', f'Prepared a WhatsApp message for {message["name"]}: "{message["text"]}"')
 
     # ----- where, navigate, look -----
 

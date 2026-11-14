@@ -111,6 +111,19 @@ class MessageTests(Offline):
         self.assertTrue(sent['open_url'].startswith('https://wa.me/14155550100?text=I%20am%20near'))
         self.assertIn('maps.google.com', sent['open_url'])
 
+    def test_with_a_message_service_yes_sends_directly(self):
+        sent = []
+        async def send(phone, text):
+            sent.append((phone, text))
+        self.memory.add_contact('Mom', '+14155550100')
+        assistant = Assistant(self.memory, Orders(), place_name=place, send_whatsapp=send)
+        with mock.patch.dict(os.environ, {'TWILIO_ACCOUNT_SID': 'AC_test', 'TWILIO_AUTH_TOKEN': 'token'}):
+            run(assistant.respond('s', 'Text Mom saying I am on my way'))
+            self.assertEqual(sent, [])  # still nothing before the yes
+            reply = run(assistant.respond('s', 'Yes'))
+        self.assertEqual(sent, [('14155550100', 'I am on my way')])
+        self.assertEqual((reply['say'], reply['open_url']), ('Sent to Mom on WhatsApp.', None))
+
     def test_dictated_message_and_cancel(self):
         self.memory.add_contact('Alex', '+14155550111')
         assistant = self.assistant()

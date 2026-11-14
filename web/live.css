@@ -113,3 +113,22 @@
 .contact-form label { font-size: 14px; font-weight: 600; }
 .contact-form .btn { justify-self: start; margin-top: 4px; }
 .hint a { color: var(--accent); font-weight: 600; }
+
+/* Bridge: live sign reading and fingerspelling */
+.bridge-head { justify-content: space-between; }
+.sign-mode { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-border); }
+.sign-mode label { cursor: pointer; }
+.sign-mode input { position: absolute; opacity: 0; }
+.sign-mode span { display: block; padding: 7px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.sign-mode input:checked + span { background: var(--ink); color: var(--bg); }
+.sign-mode input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.link-inline { border: 0; background: none; color: var(--accent); font: 600 13.5px/1 var(--font); text-decoration: underline; cursor: pointer; }
+.sign-live { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 15px; font-weight: 700; }
+.sign-meter { flex: 1; height: 8px; border-radius: 99px; background: var(--glass-edge); overflow: hidden; }
+.sign-meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .12s linear; }
+.spell { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 4px; }
+.spell:empty { display: none; }
+.spell-card { flex: none; width: 62px; margin: 0; padding: 6px; border-radius: 12px; background: #fff; text-align: center; animation: rise .3s both; }
+.spell-card img { display: block; width: 50px; height: 56px; object-fit: contain; }
+.spell-card figcaption { font: 700 15px/1.3 var(--font); color: #07120f; }
+.spell-gap { flex: none; width: 18px; }
