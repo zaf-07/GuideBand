@@ -17,6 +17,8 @@ import threading
 from io import BytesIO
 from pathlib import Path
 
+from . import llm
+
 # Objects worth a spoken warning when they take up enough of the view.
 HAZARD_LABELS = {
     'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck', 'train',
@@ -171,28 +173,10 @@ def _user_prompt(question: str, detections: list[dict]) -> str:
 
 
 async def ask_gemini(image: bytes, mime: str, question: str, detections: list[dict]) -> str:
-    import httpx
-    model = os.getenv('GEMINI_MODEL', 'gemini-flash-latest')
-    payload = {
-        'systemInstruction': {'parts': [{'text': SYSTEM_PROMPT}]},
-        'contents': [{'role': 'user', 'parts': [
-            {'inlineData': {'mimeType': mime, 'data': base64.b64encode(image).decode('ascii')}},
-            {'text': _user_prompt(question, detections)},
-        ]}],
-        'generationConfig': {'temperature': 0.2, 'maxOutputTokens': 1024},
-    }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=4.0)) as client:
-        response = await client.post(
-            f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-            headers={'x-goog-api-key': os.environ['GEMINI_API_KEY']},
-            json=payload,
-        )
-        response.raise_for_status()
-    parts = response.json()['candidates'][0]['content']['parts']
-    text = ' '.join(part['text'].strip() for part in parts if part.get('text') and not part.get('thought'))
-    if not text:
-        raise ValueError('Gemini returned no text')
-    return text
+    return await llm.gemini(
+        [llm.image_part(image, mime), {'text': _user_prompt(question, detections)}],
+        system=SYSTEM_PROMPT,
+    )
 
 
 async def ask_groq(image: bytes, mime: str, question: str, detections: list[dict]) -> str:
