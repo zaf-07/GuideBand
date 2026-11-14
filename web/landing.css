@@ -231,22 +231,31 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .detected-copy h3 { margin-top: 4px; font-size: 23px; letter-spacing: -.025em; }
 .detected-copy > p:last-child { margin-top: 3px; color: var(--muted); font-size: 15px; }
 .download-main { min-width: 210px; }
-.platform-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
-.platform-card { display: flex; flex-direction: column; gap: 18px; padding: 24px; border-radius: var(--radius); transition: transform .25s, border-color .25s; }
+.platform-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.platform-card { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 22px; border-radius: var(--radius); transition: transform .25s, border-color .25s; }
+.platform-card:not(.platform-card-web) { min-height: 236px; }
 .platform-card.is-detected { border-color: var(--accent); box-shadow: inset 0 1px 0 var(--glass-hi), 0 14px 44px -14px var(--shadow), 0 0 0 1px var(--accent); }
 .platform-card:hover { transform: translateY(-3px); }
 .platform-head { display: flex; align-items: center; gap: 14px; }
 .platform-head h3 { font-size: 20px; letter-spacing: -.02em; }
-.platform-head p { color: var(--muted); font-size: 14px; }
+.platform-head p { color: var(--muted); font-size: 13px; line-height: 1.35; }
+.title-with-tag { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.title-with-tag h3 { margin: 0; }
+.title-with-tag .tag { margin-left: 0; }
 .os-icon { display: grid; place-items: center; width: 45px; height: 45px; border-radius: 14px; background: var(--icon-bg); color: var(--accent); flex: none; }
 .os-icon svg { width: 25px; height: 25px; }
-.download-choice { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 82px; padding: 15px 17px; border: 1px solid var(--glass-border); border-radius: 19px; background: var(--glass-strong); text-decoration: none; transition: transform .2s, border-color .2s, background .2s; }
+.os-icon svg path[fill="currentColor"] { stroke: none; }
+.detected-icon svg path[fill="currentColor"] { stroke: none; }
+.download-choice { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 96px; padding: 15px 16px; border: 1px solid var(--glass-border); border-radius: 19px; background: var(--glass-strong); text-decoration: none; transition: transform .2s, border-color .2s, background .2s; margin-top: auto; }
 .download-choice:hover { transform: translateY(-2px); border-color: var(--accent); }
 .download-choice span { display: grid; gap: 3px; }
-.download-choice strong { font-size: 16px; }
+.download-choice strong { font-size: 15px; line-height: 1.25; }
 .download-choice small { color: var(--muted); font-size: 13px; }
 .download-choice b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 18px; flex: none; }
-.alt-download { position: relative; z-index: 1; align-self: flex-start; margin-top: -8px; color: var(--accent); font-size: 14px; font-weight: 650; text-underline-offset: 4px; }
+.alt-download { position: relative; z-index: 1; align-self: flex-start; margin-top: 4px; color: var(--accent); font-size: 13px; font-weight: 650; text-underline-offset: 4px; }
+.platform-card-web { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 28px; }
+.platform-card-web .platform-head { flex: 1; min-width: 0; }
+.platform-card-web .download-choice { flex: none; min-width: 270px; min-height: 72px; margin-top: 0; padding: 14px 18px; }
 .release-note { max-width: 760px; margin: 20px auto 0; color: var(--muted); font-size: 13.5px; text-align: center; }
 
 /* Steps */
@@ -278,10 +287,13 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   .cta-row, .hero-facts { justify-content: center; }
   .grid, .steps { grid-template-columns: 1fr 1fr; }
   .trust { grid-template-columns: 1fr; gap: 32px; padding: 34px; }
+  .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .nav-links { display: none; }
   .btn-small, .nav-links + .btn-small { margin-left: auto; }
+  .platform-card-web { flex-direction: column; align-items: stretch; gap: 16px; padding: 20px; }
+  .platform-card-web .download-choice { min-width: 100%; }
 }
 @media (max-width: 620px) {
   .container { width: calc(100% - 32px); }
@@ -295,6 +307,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   .detected { grid-template-columns: auto 1fr; padding: 22px; }
   .download-main { grid-column: 1 / -1; width: 100%; }
   .platform-grid { grid-template-columns: 1fr; }
+  .platform-card-web { grid-column: auto; }
 }
 
 /* ---------- User preferences ---------- */
