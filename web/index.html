@@ -180,29 +180,55 @@
     <section class="section container" id="get" aria-labelledby="getTitle">
       <div class="section-head">
         <p class="eyebrow">Get the app</p>
-        <h2 id="getTitle">Try the prototype.</h2>
-        <p>An early build you can open in your browser or install on your phone or computer.</p>
+        <h2 id="getTitle">GuideBand, built for your device.</h2>
+        <p id="downloadIntro">We’ll detect this device and put the right build first. You can always choose another platform.</p>
       </div>
-      <div class="grid grid-3">
-        <article class="card card-get glass">
-          <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z"/></svg></span>
-          <h3>Web</h3>
-          <p>Nothing to install. Opens in any modern browser and can be added to your home screen.</p>
-          <a class="btn btn-primary" href="app.html">Open GuideBand</a>
+      <div class="detected glass" id="detectedDownload" role="region" aria-live="polite" aria-label="Recommended download">
+        <div class="detected-icon" id="detectedIcon" aria-hidden="true"></div>
+        <div class="detected-copy">
+          <p class="download-kicker"><span class="dot"></span><span id="detectedLabel">Checking your device…</span></p>
+          <h3 id="detectedTitle">Finding the right GuideBand build</h3>
+          <p id="detectedDetail">This takes less than a second.</p>
+        </div>
+        <a class="btn btn-primary download-main" id="detectedButton" href="app.html">Open web app</a>
+      </div>
+
+      <div class="platform-grid" id="allDownloads" aria-label="All GuideBand downloads">
+        <article class="platform-card glass" data-platform="android">
+          <div class="platform-head"><span class="os-icon os-android" aria-hidden="true"></span><div><h3>Android</h3><p>Phone + Vexo bracelet</p></div></div>
+          <a class="download-choice" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/GuideBand-Android.apk" download>
+            <span><strong>Download APK</strong><small>Android 8.0+ · 12.9 MB</small></span><b aria-hidden="true">↓</b>
+          </a>
         </article>
-        <article class="card card-get glass">
-          <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg></span>
-          <h3>Android</h3>
-          <p>The assistant on your phone, with a wake phrase and spoken confirmations.</p>
-          <a class="btn btn-glass glass" href="https://github.com/zaf-07/GuideBand/releases/latest" rel="noopener">Download the APK</a>
+        <article class="platform-card glass" data-platform="macos">
+          <div class="platform-head"><span class="os-icon os-apple" aria-hidden="true"></span><div><h3>macOS</h3><p>Apple silicon + Intel</p></div></div>
+          <a class="download-choice" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/GuideBand-0.1.0-universal.dmg" download>
+            <span><strong>Download universal DMG</strong><small>macOS · 203.8 MB</small></span><b aria-hidden="true">↓</b>
+          </a>
+          <a class="alt-download" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/GuideBand-0.1.0-universal-mac.zip" download>ZIP archive</a>
         </article>
-        <article class="card card-get glass">
-          <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
-          <h3>Desktop</h3>
-          <p>Available for macOS, Windows and Linux, with the same voice-first experience.</p>
-          <a class="btn btn-glass glass" href="https://github.com/zaf-07/GuideBand/releases/latest" rel="noopener">Download for desktop</a>
+        <article class="platform-card glass" data-platform="windows">
+          <div class="platform-head"><span class="os-icon os-windows" aria-hidden="true"></span><div><h3>Windows</h3><p>Windows 10 and later</p></div></div>
+          <a class="download-choice" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/GuideBand.Setup.0.1.0.exe" download>
+            <span><strong>Download installer</strong><small>x64 Setup · 102 MB</small></span><b aria-hidden="true">↓</b>
+          </a>
+          <a class="alt-download" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/GuideBand.0.1.0.exe" download>Portable EXE</a>
+        </article>
+        <article class="platform-card glass" data-platform="linux">
+          <div class="platform-head"><span class="os-icon os-linux" aria-hidden="true"></span><div><h3>Linux</h3><p>Debian, Ubuntu + others</p></div></div>
+          <a class="download-choice" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/guideband_0.1.0_amd64.deb" download>
+            <span><strong>Download DEB</strong><small>x64 · 90.4 MB</small></span><b aria-hidden="true">↓</b>
+          </a>
+          <a class="alt-download" href="https://github.com/zaf-07/GuideBand/releases/download/v0.1.0/GuideBand-0.1.0.AppImage" download>AppImage</a>
+        </article>
+        <article class="platform-card glass" data-platform="web">
+          <div class="platform-head"><span class="os-icon os-web" aria-hidden="true"></span><div><h3>Web app</h3><p>Any modern browser</p></div></div>
+          <a class="download-choice" href="app.html">
+            <span><strong>Open GuideBand</strong><small>No installation needed</small></span><b aria-hidden="true">→</b>
+          </a>
         </article>
       </div>
+      <p class="release-note">GuideBand 0.1.0 · Early hackathon prototype. Desktop builds are unsigned, so your operating system may ask you to confirm before opening.</p>
     </section>
   </main>
 
