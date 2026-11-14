@@ -50,6 +50,10 @@ This table is the honest state of the repository, not the pitch.
 | Remember — private text-only memory and recall | Built: `/memory`, "Where did I leave my keys?" in the demo |
 | Act — payment gated by a spoken yes | Built: quote, then pay only on yes. Simulated unless a Stripe **test** key is set; live keys are refused |
 | Assistant — one sentence in, one spoken reply out | Built: `POST /assistant` routes to see, recall, remember and pay |
+| Hands-free mode — say "Guide, …" with no buttons; automatic description when the scene changes | Built in the demo (browser speech recognition) |
+| Walking directions — "Take me to the nearest supermarket", turn-by-turn by GPS, "Take me back" | Built: OpenStreetMap search and foot routing, `POST /location` |
+| Place memory — GPS breadcrumbs of the walked path; notes tagged with the street they were made on | Built. Outdoors only: GPS is unreliable indoors |
+| Phone vibration for warnings, confirmations and turns | Built for Android Chrome, as a stand-in for the bracelet's haptics |
 | Bridge — live captions and type-to-speech | Built in the demo (browser speech) |
 | Bridge — sign reading | Experimental: `POST /bridge/sign`, drops low-confidence readings |
 | Voice | Browser speech recognition and synthesis; ElevenLabs is planned |

@@ -47,7 +47,8 @@
   };
 
   // ---------- Speech out ----------
-  let lastReplyAt = 0;
+  let lastReplyAt = 0, lastSpeechEnd = 0;
+  const buzz = pattern => { try { navigator.vibrate?.(pattern); } catch {} };
   function speak(text, { warning = false, force = false } = {}) {
     if (!('speechSynthesis' in window) || !text) return;
     if (warning) {
@@ -61,6 +62,7 @@
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = warning ? 1.08 : 1;
+    utterance.onend = () => { lastSpeechEnd = Date.now(); };
     speechSynthesis.speak(utterance);
   }
 
@@ -117,7 +119,7 @@
       const x = dx + d.box[0] * video.videoWidth * scale, y = dy + d.box[1] * video.videoHeight * scale;
       const bw = (d.box[2] - d.box[0]) * video.videoWidth * scale, bh = (d.box[3] - d.box[1]) * video.videoHeight * scale;
       ctx.strokeStyle = '#d8ff70'; ctx.strokeRect(x, y, bw, bh);
-      const label = d.label + ' ' + Math.round(d.confidence * 100) + '%';
+      const label = d.label;
       ctx.fillStyle = '#d8ff70'; ctx.fillRect(x, Math.max(0, y - 20), ctx.measureText(label).width + 10, 20);
       ctx.fillStyle = '#07120f'; ctx.fillText(label, x + 5, Math.max(0, y - 20) + 3);
     }
@@ -125,7 +127,21 @@
 
   // ---------- See: continuous local hazard warnings ----------
   const spokenAt = new Map();
-  let looping = false;
+  let looping = false, candidateKey = '', stable = 0, narratedKey = '', narratedAt = 0;
+  async function narrate(blob) {
+    try {
+      const body = new FormData();
+      body.append('image', blob, 'frame.jpg');
+      body.append('question', 'The scene just changed. In one short sentence, tell me what is in front of me now.');
+      body.append('remember', 'true');
+      addLocation(body);
+      const scene = await call('/vision/analyze', { method: 'POST', body });
+      if (scene.provider && scene.provider !== 'local' && !busy && !speechSynthesis.speaking) {
+        addMessage('guide', scene.description, 'automatic · ' + sources[scene.provider]);
+        speak(scene.description);
+      }
+    } catch {}
+  }
   async function hazardLoop() {
     if (looping) return;
     looping = true;
@@ -143,7 +159,15 @@
             drawBoxes(scene.detections);
             el('liveWarning').textContent = scene.warnings.join(' ');
             const fresh = scene.warnings.find(w => Date.now() - (spokenAt.get(w) || 0) > 8000);
-            if (fresh) { spokenAt.set(fresh, Date.now()); speak(fresh, { warning: true }); }
+            if (fresh) { spokenAt.set(fresh, Date.now()); speak(fresh, { warning: true }); buzz(400); }
+            // Narrate only when what is in view has changed and stayed changed.
+            const key = [...new Set(scene.detections.filter(d => d.area >= 0.02).map(d => d.label))].sort().join(',');
+            if (key === candidateKey) stable++; else { candidateKey = key; stable = 0; }
+            if (el('autoDescribe').checked && key && stable >= 2 && key !== narratedKey && Date.now() - narratedAt > 12000
+                && !busy && !speechSynthesis.speaking) {
+              narratedKey = key; narratedAt = Date.now();
+              narrate(blob);
+            }
           }
         } catch { online = false; checkService(); }
       }
@@ -182,6 +206,7 @@
       body.append('session', session);
       const blob = await frame();
       if (blob) body.append('image', blob, 'frame.jpg');
+      addLocation(body);
       const reply = await call('/assistant', { method: 'POST', body });
       pendingItem.remove();
       const meta = reply.provider ? sources[reply.provider] + ' · ' + (reply.latency_ms / 1000).toFixed(1) + ' s' : '';
@@ -189,7 +214,9 @@
       speak(reply.say);
       const waiting = reply.order && (reply.intent === 'pay_quote' || reply.intent === 'pay_waiting');
       el('confirmBar').hidden = !waiting;
-      if (waiting) el('confirmText').textContent = 'Pay ' + reply.order.price + ' for one ' + reply.order.item + '?';
+      if (waiting) { el('confirmText').textContent = 'Pay ' + reply.order.price + ' for one ' + reply.order.item + '?'; buzz([80, 80, 80]); }
+      if (reply.intent === 'nav_stop' || (reply.intent === 'navigate' && !reply.navigating)) el('navStatus').textContent = '';
+      if (reply.navigating) el('navStatus').textContent = 'Directions are on. Keep walking — I will speak each turn.';
       if (reply.intent === 'bridge') selectTab('bridge');
       if (['remember', 'forget', 'see', 'pay_confirm'].includes(reply.intent)) loadMemory();
     } catch (error) {
@@ -206,6 +233,7 @@
   let listening = null;
   function listen({ continuous, onText, onEnd }) {
     listening?.abort();
+    handsFree?.abort();
     speechSynthesis?.cancel();
     const r = new Recognition();
     r.lang = 'en-US'; r.interimResults = true; r.continuous = continuous;
@@ -214,13 +242,45 @@
       onText(text, e.results[e.results.length - 1].isFinal);
     };
     r.onerror = e => { if (e.error === 'not-allowed') addMessage('error', 'Microphone permission was denied. You can still type.'); };
-    r.onend = () => { if (listening === r) listening = null; onEnd(); };
+    r.onend = () => { if (listening === r) listening = null; onEnd(); if (!listening) startHandsFree(); };
     listening = r;
     r.start();
     return r;
   }
+  // Hands-free: listen continuously, act only on sentences that start with "Guide".
+  const WAKE = /^(?:hey |okay |ok )?(?:guide|guides|guyed|guy|god)\b[\s,.!?]*(.*)$/i;
+  let handsFree = null;
+  function onHeard(text) {
+    if (speechSynthesis.speaking || Date.now() - lastSpeechEnd < 700) return; // that was our own voice
+    const wake = text.match(WAKE);
+    if (wake && wake[1].trim()) { buzz(60); ask(wake[1]); }
+    else if (!el('confirmBar').hidden && /^(yes|yeah|yep|no|nope|cancel)\b/i.test(text)) { buzz(60); ask(text); }
+  }
+  function startHandsFree() {
+    if (!Recognition || !el('handsFree').checked || handsFree || listening) return;
+    const r = new Recognition();
+    r.lang = 'en-US'; r.continuous = true; r.interimResults = false;
+    r.onresult = e => {
+      for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) onHeard(e.results[i][0].transcript.trim());
+    };
+    r.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        el('handsFree').checked = false;
+        addMessage('error', 'Microphone permission was denied, so hands-free is off.');
+      }
+    };
+    r.onend = () => { if (handsFree === r) handsFree = null; setTimeout(startHandsFree, 300); }; // it stops itself after silence
+    handsFree = r;
+    try { r.start(); } catch { handsFree = null; }
+  }
+  el('handsFree').onchange = () => {
+    if (el('handsFree').checked) { startHandsFree(); addMessage('guide', 'Hands-free is on. Say “Guide”, then your question.'); }
+    else handsFree?.abort();
+  };
+
   if (!Recognition) {
     el('micBtn').hidden = true;
+    el('handsFree').disabled = true;
     el('captionBtn').disabled = true;
     el('micHint').textContent = 'Voice input isn’t available in this browser — type instead, or use Chrome.';
   } else {
@@ -284,6 +344,37 @@
     el('signBtn').disabled = false;
   };
 
+  // ---------- Location and directions ----------
+  let position = null, lastSent = 0, watchId = null;
+  function addLocation(body) {
+    if (position) { body.append('lat', position.lat); body.append('lon', position.lon); }
+  }
+  function onPosition(fix) {
+    position = { lat: fix.coords.latitude, lon: fix.coords.longitude };
+    if (!online || Date.now() - lastSent < 4000) return;
+    lastSent = Date.now();
+    const body = new FormData();
+    addLocation(body);
+    body.append('session', session);
+    call('/location', { method: 'POST', body }).then(nav => {
+      if (nav.active) el('navStatus').textContent = 'Walking to ' + nav.destination + ' · ' + nav.remaining + ' to go';
+      else if (nav.say) el('navStatus').textContent = '';
+      if (nav.say) { addMessage('guide', nav.say, 'directions'); speak(nav.say); buzz([200, 100, 200]); }
+    }).catch(() => {});
+  }
+  el('locationToggle').onchange = () => {
+    if (!el('locationToggle').checked) {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = null; position = null; el('navStatus').textContent = '';
+      return;
+    }
+    if (!navigator.geolocation) { el('locationToggle').checked = false; return addMessage('error', 'This browser cannot share location.'); }
+    watchId = navigator.geolocation.watchPosition(onPosition, () => {
+      el('locationToggle').checked = false; watchId = null;
+      addMessage('error', 'Location permission was denied. Directions need it.');
+    }, { enableHighAccuracy: true, maximumAge: 2000 });
+  };
+
   // ---------- Memory ----------
   function ago(seconds) {
     if (seconds < 45) return 'just now';
@@ -316,6 +407,7 @@
     if (!blob) return;
     const body = new FormData();
     body.append('image', blob, 'frame.jpg');
+    addLocation(body);
     call('/memory/observe', { method: 'POST', body }).then(loadMemory).catch(() => {});
   }, 20000);
 
