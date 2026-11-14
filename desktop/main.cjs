@@ -7,7 +7,7 @@ function createWindow() {
     backgroundColor: '#07120f', title: 'GuideBand',
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
-  win.loadFile(path.join(__dirname, '..', 'web', 'index.html'));
+  win.loadFile(path.join(__dirname, '..', 'web', 'app.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file:')) { event.preventDefault(); shell.openExternal(url); }
