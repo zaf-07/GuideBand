@@ -7,6 +7,8 @@ Rules enforced here, not in the client:
 * Only Stripe *test* keys are accepted. A live key is refused outright.
 * Without a Stripe key the payment is simulated and clearly labelled as such.
 """
+from __future__ import annotations
+
 import os
 import re
 import time

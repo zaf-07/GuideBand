@@ -4,6 +4,8 @@ Only short text is stored — object labels, positions and brief notes. Images
 and audio are never written. Everything lives in one local SQLite file that the
 user can wipe at any time.
 """
+from __future__ import annotations
+
 import os
 import re
 import sqlite3

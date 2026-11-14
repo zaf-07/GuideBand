@@ -4,6 +4,8 @@
 decisions (is this a payment? was that a yes?) never depend on a language model.
 `Assistant.respond` then runs the matching tool: see, recall, remember or pay.
 """
+from __future__ import annotations
+
 import re
 
 from . import vision
