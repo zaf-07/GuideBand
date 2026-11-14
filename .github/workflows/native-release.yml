@@ -2,7 +2,7 @@ name: GuideBand release builds
 on:
   workflow_dispatch:
     inputs:
-      release_tag: { description: 'Existing or new release tag', required: true, default: 'v0.2.0', type: string }
+      release_tag: { description: 'Existing or new release tag', required: true, default: 'v0.1.0', type: string }
   push: { tags: ['v*'] }
 permissions: { contents: write }
 jobs:
