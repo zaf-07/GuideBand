@@ -5,14 +5,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import load_env
 from .planner import plan
-from .services import bridge, llm, vision
+from .services import bridge, llm, navigation, speech, vision
 from .services.assistant import Assistant
 from .services.memory import Memory
 from .services.payments import CATALOGUE, Orders, money
@@ -34,7 +34,8 @@ app.add_middleware(
 tasks: dict[str, dict] = {}
 memory = Memory()
 orders = Orders()
-assistant = Assistant(memory, orders)
+navigator = navigation.Navigator()
+assistant = Assistant(memory, orders, navigator=navigator)
 
 class Command(BaseModel):
     text: str = Field(min_length=1, max_length=500)
@@ -72,7 +73,9 @@ def system_status():
         'vision': {'detector': vision.detector.status(), 'cloud_providers': vision.configured_providers(), 'model': llm.model()},
         'payments': {'mode': 'stripe_test' if stripe_key.startswith('sk_test_') else ('refused_live_key' if stripe_key else 'simulated'),
                      'menu': [{'item': name, 'price': money(cents)} for name, cents in CATALOGUE.values()]},
-        'memory': {'notes': len(memory.notes(1000)), 'objects': len(memory.sightings())},
+        'memory': {'notes': len(memory.notes(1000)), 'objects': len(memory.sightings()), 'path_points': len(memory.path())},
+        'navigation': {'maps': 'openstreetmap'},
+        'speech': {'voice': 'elevenlabs' if speech.configured() else 'browser'},
     }
 
 @app.post('/commands/plan')
@@ -85,6 +88,9 @@ async def vision_analyze(
     image: UploadFile = File(...),
     question: str = Form('', max_length=300),
     describe: bool = Form(True),
+    remember: bool = Form(False),
+    lat: float | None = Form(None),
+    lon: float | None = Form(None),
 ):
     """One camera frame in, spoken-ready text out. The frame is never stored.
 
@@ -109,6 +115,9 @@ async def vision_analyze(
     if describe:
         answer = await vision.describe(body, image.content_type, question, detections)
         result.update(description=answer['text'], provider=answer['provider'], failed_providers=answer['failed_providers'])
+        if remember and answer['provider'] != 'local':
+            place = await navigation.place_name(lat, lon) if lat is not None and lon is not None else ''
+            memory.add_note('seen', answer['text'], place=place)
     result['latency_ms'] = {'detect': detect_ms, 'total': int((time.monotonic() - started) * 1000)}
     return result
 
@@ -119,12 +128,15 @@ async def assistant_respond(
     text: str = Form(..., min_length=1, max_length=300),
     session: str = Form('default', max_length=64),
     image: UploadFile | None = File(None),
+    lat: float | None = Form(None),
+    lon: float | None = Form(None),
 ):
     """One spoken sentence in, one spoken reply out. `image` is the current camera frame, if any."""
     started = time.monotonic()
     body = await read_image(image) if image is not None else None
     try:
-        reply = await assistant.respond(session, text, body, image.content_type if image is not None else 'image/jpeg')
+        location = (lat, lon) if lat is not None and lon is not None else None
+        reply = await assistant.respond(session, text, body, image.content_type if image is not None else 'image/jpeg', location)
     except vision.VisionError as error:
         raise HTTPException(422, str(error)) from error
     reply['timestamp'] = now()
@@ -134,20 +146,54 @@ async def assistant_respond(
 # ---------- Remember ----------
 
 @app.post('/memory/observe')
-async def memory_observe(image: UploadFile = File(...)):
+async def memory_observe(image: UploadFile = File(...), lat: float | None = Form(None), lon: float | None = Form(None)):
     """Quietly turn the current frame into a text note. The frame is discarded."""
     body = await read_image(image)
     detections = await detect(body)
     memory.record_detections(detections)
-    return await memory.snapshot(body, image.content_type, vision.local_description(detections))
+    place = await navigation.place_name(lat, lon) if lat is not None and lon is not None else ''
+    return await memory.snapshot(body, image.content_type, vision.local_description(detections), place)
 
 @app.get('/memory')
-def memory_list(): return {'notes': memory.notes(), 'objects': memory.sightings(), 'stores_media': False}
+def memory_list(): return {'notes': memory.notes(), 'objects': memory.sightings(), 'path_points': len(memory.path()), 'stores_media': False}
 
 @app.delete('/memory')
 def memory_clear():
     memory.clear()
     return {'status': 'cleared'}
+
+# ---------- Location and directions ----------
+
+@app.post('/location')
+def location_update(lat: float = Form(..., ge=-90, le=90), lon: float = Form(..., ge=-180, le=180), session: str = Form('default', max_length=64)):
+    """One GPS fix in. Adds a breadcrumb to the walked path and returns the next spoken direction, if any."""
+    memory.record_location(lat, lon)
+    return navigator.update(session, lat, lon)
+
+# ---------- Speech ----------
+
+@app.post('/speech')
+async def speech_out(text: str = Form(..., min_length=1, max_length=speech.MAX_TEXT)):
+    """Text in, MP3 out, in the ElevenLabs voice."""
+    if not speech.configured():
+        raise HTTPException(503, 'No voice service is configured')
+    try:
+        return Response(await speech.synthesize(text), media_type='audio/mpeg', headers={'Cache-Control': 'no-store'})
+    except speech.SpeechError as error:
+        raise HTTPException(502, str(error)) from error
+
+@app.post('/speech/transcribe')
+async def speech_in(audio: UploadFile = File(...)):
+    """A short audio clip in, text out. For microphones the browser cannot transcribe, like the bracelet."""
+    if not speech.configured():
+        raise HTTPException(503, 'No transcription service is configured')
+    body = await audio.read(10 * 1024 * 1024 + 1)
+    if len(body) > 10 * 1024 * 1024:
+        raise HTTPException(413, 'Audio clip is too large')
+    try:
+        return {'text': await speech.transcribe(body, audio.content_type or 'application/octet-stream')}
+    except speech.SpeechError as error:
+        raise HTTPException(502, str(error)) from error
 
 # ---------- Bridge ----------
 

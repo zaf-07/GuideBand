@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from . import vision
+from . import navigation, vision
 from .memory import Memory
 from .payments import Orders, PaymentError
 
@@ -22,11 +22,17 @@ RECALL = re.compile(
     r'|\bdo you remember\b|\blast (saw|seen)\b|\bwhat (do|did) you remember\b'
 )
 BRIDGE = re.compile(r'\bbridge\b')
+NAV = re.compile(
+    r'\b(take|guide|walk|navigate|lead|bring|get) me to\b|\b(directions?|route|way) to\b'
+    r'|\bhow do i get to\b|\bnavigate to\b|\b(nearest|closest)\b'
+)
+NAV_STOP = re.compile(r'\b(stop|cancel|end) (the )?(navigation|directions|route|guiding)\b')
+GO_BACK = re.compile(r'\b(take|guide|walk|lead|bring) me back\b|\bway back\b|\bgo back to (the )?start\b')
 HELP = re.compile(r'\bwhat can you do\b|^\W*help\b')
 
 HELP_TEXT = (
     'I can tell you what is in front of you, read text, remember where things are, '
-    'and buy something after you say yes. Try: what is in front of me?'
+    'guide you on foot to a place nearby, and buy something after you say yes. Try: what is in front of me?'
 )
 
 
@@ -40,6 +46,12 @@ def route(text: str, has_pending_order: bool = False) -> str:
         return 'pay_waiting'
     if FORGET.search(value):
         return 'forget'
+    if NAV_STOP.search(value):
+        return 'nav_stop'
+    if GO_BACK.search(value):
+        return 'go_back'
+    if NAV.search(value):
+        return 'navigate'
     if PAY.search(value):
         return 'pay_quote'
     if RECALL.search(value):
@@ -56,12 +68,15 @@ def route(text: str, has_pending_order: bool = False) -> str:
 
 
 class Assistant:
-    def __init__(self, memory: Memory, orders: Orders, detector=None) -> None:
+    def __init__(self, memory: Memory, orders: Orders, detector=None, navigator=None, place_name=None) -> None:
+        self.navigator = navigator or navigation.Navigator()
+        self.place_name = place_name or navigation.place_name
         self.memory = memory
         self.orders = orders
         self.detector = detector or vision.detector
 
-    async def respond(self, session: str, text: str, image: bytes | None = None, mime: str = 'image/jpeg') -> dict:
+    async def respond(self, session: str, text: str, image: bytes | None = None, mime: str = 'image/jpeg',
+                      location: tuple[float, float] | None = None) -> dict:
         pending = self.orders.pending(session)
         intent = route(text, bool(pending))
         reply = {'intent': intent, 'heard': text, 'say': '', 'order': None, 'warnings': [], 'detections': [], 'provider': None}
@@ -96,6 +111,11 @@ class Assistant:
         elif intent == 'recall':
             answer = await self.memory.recall(text)
             reply.update(say=answer['text'], provider=answer['provider'])
+        elif intent == 'nav_stop':
+            reply['say'] = 'Navigation stopped.' if self.navigator.stop(session) else 'No navigation is running.'
+        elif intent in ('navigate', 'go_back'):
+            reply['say'] = await self._navigate(session, intent, text, location)
+            reply['navigating'] = self.navigator.active(session) is not None
         elif intent == 'bridge':
             reply['say'] = 'Bridge mode is on. Speech will appear as large captions, and I will speak what you type.'
         elif intent == 'help':
@@ -103,20 +123,34 @@ class Assistant:
         elif image is None:
             reply['say'] = 'I need the camera for that. Please turn the camera on.'
         else:
-            await self._look(reply, intent, text, image, mime)
+            place = await self.place_name(*location) if location else ''
+            await self._look(reply, intent, text, image, mime, place)
         return reply
 
-    async def _look(self, reply: dict, intent: str, text: str, image: bytes, mime: str) -> None:
+    async def _navigate(self, session: str, intent: str, text: str, location: tuple[float, float] | None) -> str:
+        if location is None:
+            return 'I need your location for directions. Please turn location on.'
+        try:
+            if intent == 'go_back':
+                start = self.memory.trip_start()
+                if start is None or navigation.haversine(*location, start['lat'], start['lon']) < 40:
+                    return 'You are still close to where you started.'
+                return await self.navigator.start_to(session, 'your starting point', *location, start['lat'], start['lon'])
+            return await self.navigator.start(session, text, *location)
+        except navigation.NavigationError as error:
+            return str(error)
+
+    async def _look(self, reply: dict, intent: str, text: str, image: bytes, mime: str, place: str = '') -> None:
         import asyncio
         detections = await asyncio.to_thread(self.detector.detect, image)
         self.memory.record_detections(detections)
         reply['detections'] = detections
         reply['warnings'] = vision.hazard_warnings(detections)
         if intent == 'remember':
-            note = await self.memory.snapshot(image, mime, vision.local_description(detections))
+            note = await self.memory.snapshot(image, mime, vision.local_description(detections), place)
             reply.update(say=f'I will remember this. {note["text"]}', provider=note['provider'])
             return
         answer = await vision.describe(image, mime, text, detections)
         reply.update(say=answer['text'], provider=answer['provider'])
         if answer['provider'] != 'local':
-            self.memory.add_note('seen', f'Asked "{text}". Answer: {answer["text"]}')
+            self.memory.add_note('seen', f'Asked "{text}". Answer: {answer["text"]}', place=place)

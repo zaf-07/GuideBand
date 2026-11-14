@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from . import llm
+from .navigation import haversine
 
 RECALL_PROMPT = (
     'You are GuideBand, the memory of a blind or low-vision person, speaking aloud. '
@@ -57,6 +58,7 @@ class Memory:
         with self._lock, self._db:
             self._db.execute('CREATE TABLE IF NOT EXISTS sightings (label TEXT PRIMARY KEY, position TEXT, last_seen REAL, times INTEGER)')
             self._db.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, kind TEXT, text TEXT, created REAL)')
+            self._db.execute('CREATE TABLE IF NOT EXISTS path (id INTEGER PRIMARY KEY, lat REAL, lon REAL, t REAL)')
 
     # ----- writing -----
 
@@ -75,8 +77,10 @@ class Memory:
                     (label, item['position'], now),
                 )
 
-    def add_note(self, kind: str, text: str, now: float | None = None) -> dict:
+    def add_note(self, kind: str, text: str, now: float | None = None, place: str = '') -> dict:
         now = now or time.time()
+        if place:
+            text = f'{text.strip()} (near {place})'
         with self._lock, self._db:
             cursor = self._db.execute('INSERT INTO notes (kind, text, created) VALUES (?, ?, ?)', (kind, text.strip(), now))
             # Keep the log small and recent.
@@ -87,8 +91,39 @@ class Memory:
         with self._lock, self._db:
             self._db.execute('DELETE FROM sightings')
             self._db.execute('DELETE FROM notes')
+            self._db.execute('DELETE FROM path')
+
+    def record_location(self, lat: float, lon: float, now: float | None = None) -> bool:
+        """Add a breadcrumb to the walked path. Skips points that barely moved."""
+        now = now or time.time()
+        with self._lock, self._db:
+            last = self._db.execute('SELECT lat, lon FROM path ORDER BY id DESC LIMIT 1').fetchone()
+            if last and haversine(last[0], last[1], lat, lon) < 8:
+                return False
+            cursor = self._db.execute('INSERT INTO path (lat, lon, t) VALUES (?, ?, ?)', (lat, lon, now))
+            self._db.execute('DELETE FROM path WHERE id <= ?', (cursor.lastrowid - 5000,))
+        return True
 
     # ----- reading -----
+
+    def path(self, limit: int = 5000) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute('SELECT lat, lon, t FROM path ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
+        return [{'lat': r[0], 'lon': r[1], 't': r[2]} for r in reversed(rows)]
+
+    def trip_start(self, now: float | None = None, max_gap: float = 20 * 60) -> dict | None:
+        """Where the current walk began: go back through the path until a long pause."""
+        now = now or time.time()
+        points = self.path()
+        if not points or now - points[-1]['t'] > max_gap:
+            return None
+        start = points[-1]
+        for point in reversed(points[:-1]):
+            if start['t'] - point['t'] > max_gap:
+                break
+            start = point
+        return start
+
 
     def sightings(self) -> list[dict]:
         with self._lock:
@@ -132,7 +167,7 @@ class Memory:
                 pass  # fall through to keyword recall
         return {'text': self.local_answer(question), 'provider': 'local'}
 
-    async def snapshot(self, image: bytes, mime: str, fallback: str) -> dict:
+    async def snapshot(self, image: bytes, mime: str, fallback: str, place: str = '') -> dict:
         """Describe a frame into a text note. The frame itself is discarded."""
         text, provider = fallback, 'local'
         if llm.configured():
@@ -141,6 +176,6 @@ class Memory:
                 provider = 'gemini'
             except Exception:
                 pass
-        note = self.add_note('snapshot', text)
+        note = self.add_note('snapshot', text, place=place)
         note['provider'] = provider
         return note
