@@ -56,7 +56,8 @@ This table is the honest state of the repository, not the pitch.
 | Phone vibration for warnings, confirmations and turns | Built for Android Chrome, as a stand-in for the bracelet's haptics |
 | Bridge — live captions and type-to-speech | Built in the demo (browser speech) |
 | Bridge — sign reading | Experimental: `POST /bridge/sign`, drops low-confidence readings |
-| Voice | Browser speech recognition and synthesis; ElevenLabs is planned |
+| Voice out | Built: ElevenLabs voice for replies and directions (`POST /speech`) when `ELEVENLABS_API_KEY` is set; hazard warnings and the fallback use the browser's local voice |
+| Voice in | Browser speech recognition in the demo; `POST /speech/transcribe` (ElevenLabs) is ready for microphones the browser cannot transcribe, such as the bracelet |
 | Mastra agent, Gemini Live streaming | Planned. The assistant currently uses plain rules plus per-frame Gemini calls |
 | Vexo bracelet microphone and haptics | Blocked until Vexo supplies the hackathon SDK; the phone is the fallback |
 

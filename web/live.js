@@ -28,7 +28,8 @@
       const cloud = s.vision.cloud_providers.length ? 'Gemini connected' : 'no cloud model (local answers only)';
       const detector = s.vision.detector.state === 'unavailable' ? 'detector unavailable' : 'on-device detector';
       const pay = s.payments.mode === 'stripe_test' ? 'Stripe test mode' : 'simulated payments';
-      el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + pay;
+      cloudVoice = s.speech?.voice === 'elevenlabs';
+      el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? 'ElevenLabs voice' : 'browser voice') + ' · ' + pay;
       el('liveDot').className = 'dot';
     } catch {
       online = false;
@@ -49,16 +50,43 @@
   // ---------- Speech out ----------
   let lastReplyAt = 0, lastSpeechEnd = 0;
   const buzz = pattern => { try { navigator.vibrate?.(pattern); } catch {} };
+  // Replies use the ElevenLabs voice when the service has one. Hazard warnings
+  // always use the browser's local voice: instant, and no network to wait for.
+  let cloudVoice = false, cloudPlaying = false;
+  const player = new Audio();
+  const isSpeaking = () => cloudPlaying || speechSynthesis.speaking;
+  function stopSpeaking() {
+    speechSynthesis.cancel();
+    player.pause();
+    cloudPlaying = false;
+  }
+  async function speakCloud(text) {
+    const body = new FormData();
+    body.append('text', text);
+    const response = await fetch(api + '/speech', { method: 'POST', body });
+    if (!response.ok) throw new Error('voice unavailable');
+    const url = URL.createObjectURL(await response.blob());
+    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); };
+    player.onended = done;
+    player.onerror = done;
+    player.src = url;
+    cloudPlaying = true;
+    try { await player.play(); } catch (error) { done(); throw error; }
+  }
   function speak(text, { warning = false, force = false } = {}) {
     if (!('speechSynthesis' in window) || !text) return;
     if (warning) {
       // Warnings never talk over an answer.
-      if (!el('hazardToggle').checked || speechSynthesis.speaking || Date.now() - lastReplyAt < 1500) return;
+      if (!el('hazardToggle').checked || isSpeaking() || Date.now() - lastReplyAt < 1500) return;
     } else {
       if (!force && !el('voiceToggle').checked) return;
-      speechSynthesis.cancel();
+      stopSpeaking();
       lastReplyAt = Date.now();
+      if (cloudVoice) return void speakCloud(text).catch(() => speakLocal(text, false));
     }
+    speakLocal(text, warning);
+  }
+  function speakLocal(text, warning) {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = warning ? 1.08 : 1;
@@ -136,7 +164,7 @@
       body.append('remember', 'true');
       addLocation(body);
       const scene = await call('/vision/analyze', { method: 'POST', body });
-      if (scene.provider && scene.provider !== 'local' && !busy && !speechSynthesis.speaking) {
+      if (scene.provider && scene.provider !== 'local' && !busy && !isSpeaking()) {
         addMessage('guide', scene.description, 'automatic · ' + sources[scene.provider]);
         speak(scene.description);
       }
@@ -164,7 +192,7 @@
             const key = [...new Set(scene.detections.filter(d => d.area >= 0.02).map(d => d.label))].sort().join(',');
             if (key === candidateKey) stable++; else { candidateKey = key; stable = 0; }
             if (el('autoDescribe').checked && key && stable >= 2 && key !== narratedKey && Date.now() - narratedAt > 12000
-                && !busy && !speechSynthesis.speaking) {
+                && !busy && !isSpeaking()) {
               narratedKey = key; narratedAt = Date.now();
               narrate(blob);
             }
@@ -234,7 +262,7 @@
   function listen({ continuous, onText, onEnd }) {
     listening?.abort();
     handsFree?.abort();
-    speechSynthesis?.cancel();
+    stopSpeaking();
     const r = new Recognition();
     r.lang = 'en-US'; r.interimResults = true; r.continuous = continuous;
     r.onresult = e => {
@@ -251,7 +279,7 @@
   const WAKE = /^(?:hey |okay |ok )?(?:guide|guides|guyed|guy|god)\b[\s,.!?]*(.*)$/i;
   let handsFree = null;
   function onHeard(text) {
-    if (speechSynthesis.speaking || Date.now() - lastSpeechEnd < 700) return; // that was our own voice
+    if (isSpeaking() || Date.now() - lastSpeechEnd < 700) return; // that was our own voice
     const wake = text.match(WAKE);
     if (wake && wake[1].trim()) { buzz(60); ask(wake[1]); }
     else if (!el('confirmBar').hidden && /^(yes|yeah|yep|no|nope|cancel)\b/i.test(text)) { buzz(60); ask(text); }
