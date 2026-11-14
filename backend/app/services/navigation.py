@@ -161,6 +161,19 @@ async def place_name(lat: float, lon: float) -> str:
     return _places[key]
 
 
+async def address(lat: float, lon: float) -> str:
+    """Street address for a coordinate, e.g. '560 20th Street, Dogpatch, San Francisco'. Empty on failure."""
+    try:
+        data = await _get(REVERSE_URL, {'format': 'jsonv2', 'lat': lat, 'lon': lon, 'zoom': 18})
+    except Exception:
+        return ''
+    found = data.get('address', {})
+    street = ' '.join(part for part in [found.get('house_number'), found.get('road')] if part)
+    place = data.get('name') if data.get('name') and data.get('name') != found.get('road') else ''
+    parts = [place, street, found.get('neighbourhood') or found.get('suburb'), found.get('city') or found.get('town')]
+    return ', '.join(part for part in parts if part)
+
+
 # ---------- Guidance ----------
 
 class Navigator:

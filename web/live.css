@@ -98,3 +98,18 @@
   .ask input { flex-basis: calc(100% - 60px); }
   .ask .btn { width: 100%; }
 }
+
+/* Always-on microphone, Bridge and Family */
+.mic-state { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.mic-state::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #9aa8a1; }
+.mic-state[data-state="on"] { color: var(--ink); }
+.mic-state[data-state="on"]::before { background: #e5484d; animation: mic-pulse 1.4s ease-in-out infinite; }
+.bridge-caption { min-height: 96px; margin-top: 6px; }
+.bridge-sign { background: var(--accent); color: var(--accent-ink); }
+.msg-link { margin-top: 10px; }
+.memory li { position: relative; }
+.link-button { position: absolute; right: 12px; top: 12px; border: 0; background: none; color: var(--accent); font: 600 13.5px/1 var(--font); cursor: pointer; text-decoration: underline; }
+.contact-form { display: grid; gap: 8px; }
+.contact-form label { font-size: 14px; font-weight: 600; }
+.contact-form .btn { justify-self: start; margin-top: 4px; }
+.hint a { color: var(--accent); font-weight: 600; }

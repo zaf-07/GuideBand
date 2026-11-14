@@ -93,7 +93,7 @@ class PaymentTests(NoCloud):
     def test_quote_charges_nothing_and_confirm_pays_once(self):
         orders = Orders()
         order = orders.quote('s', 'buy me a coffee')
-        self.assertEqual((order['item'], order['price']), ('medium coffee', '$3.50'))
+        self.assertEqual((order['item'], order['price']), ('one medium coffee', '$3.50'))
         receipt = run(orders.confirm('s'))
         self.assertEqual(receipt['mode'], 'simulated')
         with self.assertRaises(PaymentError):
@@ -170,7 +170,7 @@ class AssistantTests(NoCloud):
         assistant = self.make([det('backpack', 0.4, 0.6)])
         saved = run(assistant.respond('s', 'Remember this', b'frame'))
         self.assertIn('backpack', saved['say'])
-        self.assertEqual(len(self.memory.notes()), 1)
+        self.assertEqual([n['kind'] for n in self.memory.notes()].count('snapshot'), 1)
         run(assistant.respond('s', 'Forget everything'))
         self.assertEqual(self.memory.notes(), [])
 

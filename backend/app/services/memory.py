@@ -59,6 +59,8 @@ class Memory:
             self._db.execute('CREATE TABLE IF NOT EXISTS sightings (label TEXT PRIMARY KEY, position TEXT, last_seen REAL, times INTEGER)')
             self._db.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, kind TEXT, text TEXT, created REAL)')
             self._db.execute('CREATE TABLE IF NOT EXISTS path (id INTEGER PRIMARY KEY, lat REAL, lon REAL, t REAL)')
+            self._db.execute('CREATE TABLE IF NOT EXISTS contacts (key TEXT PRIMARY KEY, name TEXT, phone TEXT)')
+        self.last_place = ''
 
     # ----- writing -----
 
@@ -92,6 +94,41 @@ class Memory:
             self._db.execute('DELETE FROM sightings')
             self._db.execute('DELETE FROM notes')
             self._db.execute('DELETE FROM path')
+
+    def visit(self, place: str) -> bool:
+        """Note a place the first time the user reaches it. Returns True when it is new."""
+        if not place or place == self.last_place:
+            return False
+        self.last_place = place
+        self.add_note('place', f'I was at {place}.')
+        return True
+
+    # ----- contacts (kept when memory is erased) -----
+
+    def add_contact(self, name: str, phone: str) -> dict:
+        name, digits = name.strip()[:40], re.sub(r'\D', '', phone)
+        if not name or not 7 <= len(digits) <= 15:
+            raise ValueError('A contact needs a name and a phone number with country code.')
+        with self._lock, self._db:
+            self._db.execute('INSERT OR REPLACE INTO contacts VALUES (?, ?, ?)', (name.lower(), name, digits))
+        return {'name': name, 'phone': digits}
+
+    def remove_contact(self, name: str) -> None:
+        with self._lock, self._db:
+            self._db.execute('DELETE FROM contacts WHERE key = ?', (name.strip().lower(),))
+
+    def contacts(self) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute('SELECT name, phone FROM contacts ORDER BY name').fetchall()
+        return [{'name': r[0], 'phone': r[1]} for r in rows]
+
+    def find_contact(self, text: str) -> dict | None:
+        """The contact whose name appears in what the user said."""
+        words = text.lower()
+        for contact in self.contacts():
+            if re.search(rf'\b{re.escape(contact["name"].lower())}\b', words):
+                return contact
+        return None
 
     def record_location(self, lat: float, lon: float, now: float | None = None) -> bool:
         """Add a breadcrumb to the walked path. Skips points that barely moved."""

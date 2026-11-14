@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from .config import load_env
 from .planner import plan
-from .services import bridge, llm, navigation, speech, vision
+from .services import bridge, checkout, llm, navigation, speech, vision
 from .services.assistant import Assistant
 from .services.memory import Memory
 from .services.payments import CATALOGUE, Orders, is_test_key, money
@@ -165,10 +165,37 @@ def memory_clear():
 # ---------- Location and directions ----------
 
 @app.post('/location')
-def location_update(lat: float = Form(..., ge=-90, le=90), lon: float = Form(..., ge=-180, le=180), session: str = Form('default', max_length=64)):
-    """One GPS fix in. Adds a breadcrumb to the walked path and returns the next spoken direction, if any."""
-    memory.record_location(lat, lon)
+async def location_update(lat: float = Form(..., ge=-90, le=90), lon: float = Form(..., ge=-180, le=180), session: str = Form('default', max_length=64)):
+    """One GPS fix in. Adds a breadcrumb to the walked path, notes new places, and returns the next spoken direction, if any."""
+    if memory.record_location(lat, lon):
+        memory.visit(await navigation.place_name(lat, lon))
     return navigator.update(session, lat, lon)
+
+# ---------- Family contacts ----------
+
+@app.get('/contacts')
+def contacts_list(): return memory.contacts()
+
+@app.post('/contacts', status_code=201)
+def contacts_add(name: str = Form(..., min_length=1, max_length=40), phone: str = Form(..., min_length=7, max_length=24)):
+    try:
+        return memory.add_contact(name, phone)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+@app.delete('/contacts/{name}')
+def contacts_remove(name: str):
+    memory.remove_contact(name)
+    return {'status': 'removed'}
+
+# ---------- Pay by code ----------
+
+@app.get('/pay/qr.png')
+def pay_qr(item: str = 'Coffee', amount: float = 4.5):
+    """A payment QR code for demos: show it to the camera and say "pay this"."""
+    if not 0 < amount <= 10000 or len(item) > 60:
+        raise HTTPException(422, 'Give an item name and a positive amount')
+    return Response(checkout.make_qr_png(checkout.payment_code(item, amount)), media_type='image/png')
 
 # ---------- Speech ----------
 

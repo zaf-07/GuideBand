@@ -62,7 +62,18 @@ class Orders:
         if item is None:
             return None
         now = now or time.time()
-        order = {'id': uuid4().hex[:12], 'item': item[0], 'amount': item[1], 'price': money(item[1]),
+        order = {'id': uuid4().hex[:12], 'item': f'one {item[0]}', 'amount': item[1], 'price': money(item[1]),
+                 'currency': 'usd', 'expires': now + ORDER_TTL_SECONDS}
+        self._pending[session] = order
+        return order
+
+    def quote_item(self, session: str, item: str, cents: int, now: float | None = None) -> dict:
+        """Create a pending order for an item and price read from the camera. Charges nothing."""
+        limit = int(os.getenv('PAY_MAX_CENTS', '5000'))
+        if cents > limit:
+            raise PaymentError(f'{item.capitalize()} costs {money(cents)}, which is over your {money(limit)} limit. I will not pay for it.')
+        now = now or time.time()
+        order = {'id': uuid4().hex[:12], 'item': item, 'amount': cents, 'price': money(cents),
                  'currency': 'usd', 'expires': now + ORDER_TTL_SECONDS}
         self._pending[session] = order
         return order
