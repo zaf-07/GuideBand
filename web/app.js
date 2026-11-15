@@ -90,7 +90,7 @@
 
   // --- Vexo Band Voice Listening (BLE -> Deepgram Nova-3 -> Assistant) ---
   let isListeningBand = false;
-  async function listenThroughBand(seconds = 8) {
+  async function listenThroughBand(seconds = 7) {
     if (isListeningBand) return;
     isListeningBand = true;
 
@@ -100,20 +100,13 @@
     const heardEl = $('#heardText');
     const replyEl = $('#replyText');
 
-    let countdown = seconds;
     if (btn) {
       btn.classList.add('listening');
-      $('#bandBtnText').textContent = `Listening (${countdown}s)…`;
+      $('#bandBtnText').textContent = 'Connecting…';
     }
-    const countTimer = setInterval(() => {
-      countdown--;
-      if (countdown > 0 && btn) {
-        $('#bandBtnText').textContent = `Listening (${countdown}s)…`;
-      }
-    }, 1000);
 
     if (orb) orb.classList.add('listening');
-    if (stateLabel) stateLabel.textContent = '🔵 Blue light ON — speak now into your Vexo wristband!';
+    if (stateLabel) stateLabel.textContent = 'Connecting to Vexo… wait for the solid blue light, then speak.';
     if (heardEl) heardEl.textContent = 'Recording wristband audio (Deepgram Nova-3)…';
 
     try {
@@ -129,7 +122,6 @@
         method: 'POST',
         body
       });
-      clearInterval(countTimer);
       if (res.ok) {
         const data = await res.json();
         if (data.ok && data.text) {
@@ -138,18 +130,17 @@
           speak(data.say);
         } else {
           heardEl.textContent = 'No speech detected on band.';
-          replyEl.textContent = data.say || 'Double-tap the band to wake its blue light, then speak close to the mic.';
+          replyEl.textContent = data.say || 'No speech was transcribed. Keep the band close to your mouth and speak after the solid blue light appears.';
         }
       } else {
         heardEl.textContent = 'Could not stream band audio.';
-        replyEl.textContent = 'Check that the band is powered on and double-tapped.';
+        const error = await res.json().catch(() => ({}));
+        replyEl.textContent = error.detail || 'Check that the band is powered on and double-tapped.';
       }
     } catch (err) {
-      clearInterval(countTimer);
       heardEl.textContent = 'Connection error with GuideBand backend.';
       replyEl.textContent = String(err);
     } finally {
-      clearInterval(countTimer);
       isListeningBand = false;
       if (btn) {
         btn.classList.remove('listening');
@@ -161,14 +152,14 @@
   }
 
   const bandBtn = $('#bandListenBtn');
-  if (bandBtn) bandBtn.onclick = () => listenThroughBand(8);
+  if (bandBtn) bandBtn.onclick = () => listenThroughBand(7);
 
   // --- Talk Orb: Band BLE or Browser Mic fallback ---
   const orb = $('#talkOrb');
   if (orb) {
     orb.onclick = () => {
       if (bandConnected) {
-        listenThroughBand(8);
+        listenThroughBand(7);
       } else {
         browserListen();
       }

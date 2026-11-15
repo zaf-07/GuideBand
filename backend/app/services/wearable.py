@@ -15,8 +15,13 @@ VEXO_USB_ID = 'VID_2FE3&PID_0004'  # the Vexo Open band
 ROOT = Path(__file__).resolve().parents[3]
 PYTHON_BIN = sys.executable or str(ROOT / '.venv' / 'bin' / 'python')
 
+
+class WearableError(RuntimeError):
+    """A hardware bridge operation failed before a transcript was produced."""
+
+
 _live_state: dict = {
-    'connected': True,
+    'connected': False,
     'transport': 'ble',
     'battery': {'percent': 95, 'charging': False, 'state': 'battery'},
     'firmware': '1.1.0',
@@ -142,11 +147,12 @@ async def refresh_band_state(timeout: float = 6.0) -> dict:
     return _live_state
 
 
-async def listen_band(seconds: float = 8.0, language: str = 'multi') -> str:
+async def listen_band(seconds: float = 7.0, language: str = 'multi') -> str:
     """Capture speech through Vexo band via BLE and Deepgram Nova-3."""
     script = ROOT / 'scripts' / 'guideband_vexo.py'
     if not script.is_file():
-        return ''
+        raise WearableError(f'Hardware bridge script is missing: {script}')
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             PYTHON_BIN, str(script), 'listen', '--transport', 'ble',
@@ -154,16 +160,25 @@ async def listen_band(seconds: float = 8.0, language: str = 'multi') -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=seconds + 14.0)
-        out_text = stdout.decode() if stdout else ''
-        transcript = ''
-        for line in out_text.splitlines():
-            line = line.strip()
-            if line.startswith('Transcript:'):
-                transcript = line.split('Transcript:', 1)[1].strip()
-        if transcript == '(no speech heard)':
-            return ''
-        return transcript
-    except Exception:
-        return ''
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=seconds + 14.0)
+    except asyncio.TimeoutError as error:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+            await proc.communicate()
+        raise WearableError('The band did not finish listening in time. Double-tap it and try again.') from error
+    except OSError as error:
+        raise WearableError(f'Could not start the hardware bridge: {error.strerror or error}') from error
+
+    out_text = stdout.decode(errors='replace') if stdout else ''
+    stderr_text = stderr.decode(errors='replace') if stderr else ''
+    if proc.returncode != 0:
+        detail = stderr_text.strip() or out_text.strip()
+        raise WearableError(detail.splitlines()[-1] if detail else 'The band connection failed. Double-tap it and try again.')
+
+    transcript = ''
+    for line in out_text.splitlines():
+        line = line.strip()
+        if line.startswith('Transcript:'):
+            transcript = line.split('Transcript:', 1)[1].strip()
+    return '' if transcript == '(no speech heard)' else transcript
 

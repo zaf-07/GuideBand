@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -18,7 +18,7 @@ from .services import bridge, checkout, llm, messaging, navigation, speech, visi
 from .services.assistant import Assistant
 from .services.memory import Memory
 from .services.payments import CATALOGUE, Orders, is_test_key, money
-from .services.wearable import status as wearable_status, listen_band, refresh_band_state
+from .services.wearable import WearableError, status as wearable_status, listen_band, refresh_band_state
 
 load_env()
 
@@ -265,16 +265,16 @@ async def post_wearable_refresh():
 @app.post('/wearable/listen')
 async def post_wearable_listen(request: Request):
     content_type = request.headers.get('content-type', '')
-    seconds = 8.0
+    seconds = 7.0
     language = 'multi'
     image_bytes = None
     mime = 'image/jpeg'
     if 'multipart/form-data' in content_type:
         form = await request.form()
         try:
-            seconds = float(form.get('seconds', 8.0))
+            seconds = float(form.get('seconds', 7.0))
         except (ValueError, TypeError):
-            seconds = 8.0
+            seconds = 7.0
         language = str(form.get('language', 'multi'))
         upload = form.get('image')
         if hasattr(upload, 'read'):
@@ -285,14 +285,22 @@ async def post_wearable_listen(request: Request):
     elif 'application/json' in content_type:
         try:
             data = await request.json()
-            seconds = float(data.get('seconds', 6.0))
+            seconds = float(data.get('seconds', 7.0))
             language = str(data.get('language', 'en'))
         except Exception:
             pass
 
-    transcript = await listen_band(seconds=seconds, language=language)
+    try:
+        transcript = await listen_band(seconds=seconds, language=language)
+    except WearableError as error:
+        raise HTTPException(503, str(error)) from error
     if not transcript:
-        return {'ok': False, 'text': '', 'say': 'No speech heard from the band.', 'action': None}
+        return {
+            'ok': False,
+            'text': '',
+            'say': 'No speech was transcribed. Keep the band 10–20 cm from your mouth and speak after the solid blue light appears.',
+            'action': None,
+        }
     reply = await assistant.respond('wearable', transcript, image_bytes, mime, None)
     return {
         'ok': True,

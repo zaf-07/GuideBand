@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,14 +87,28 @@ def listen(transport: str, seconds: float, language: str) -> None:
             f"Preparing {band.name}. If its light turns solid blue, nearby audio is being "
             "sent to Deepgram; tell everyone nearby before that happens."
         )
-        text = speech.listen(
-            band,
-            seconds,
-            language=language,
-            on_text=lambda value, final: print(
-                ("Final: " if final else "Hearing: ") + value
-            ),
-        )
+        options = {'language': language}
+        if language == 'multi':
+            options['language_hint'] = ['en', 'ru']
+        final = threading.Event()
+
+        def on_text(value, is_final):
+            print(("Final: " if is_final else "Hearing: ") + value)
+            if is_final:
+                final.set()
+
+        ears = speech.create(**options).start(on_text)
+        feed = ears.feed
+        band.on("audio", feed)
+        try:
+            band.configure(audio=True)
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline and not final.is_set():
+                band.wait(min(0.1, deadline - time.monotonic()))
+            band.configure(audio=False)
+        finally:
+            band.off("audio", feed)
+        text = ears.stop()
         print("Transcript:", text or "(no speech heard)")
 
 
@@ -139,7 +155,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--transport", choices=("ble", "serial", "sim"), default="ble"
     )
-    parser.add_argument("--seconds", type=float, default=8)
+    parser.add_argument("--seconds", type=float, default=7)
     parser.add_argument("--language", default="multi")
     return parser.parse_args()
 
