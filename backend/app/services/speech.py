@@ -29,7 +29,16 @@ def configured() -> bool:
     return bool(os.getenv('MINIMAX_API_KEY') or os.getenv('DEEPGRAM_API_KEY') or os.getenv('ELEVENLABS_API_KEY'))
 
 
+def preferred() -> str:
+    """SPEECH_VOICE=elevenlabs|deepgram|minimax picks the voice to try first, when its key is set."""
+    choice = os.getenv('SPEECH_VOICE', '').strip().lower()
+    key = {'elevenlabs': 'ELEVENLABS_API_KEY', 'deepgram': 'DEEPGRAM_API_KEY', 'minimax': 'MINIMAX_API_KEY'}.get(choice)
+    return choice if key and os.getenv(key) else ''
+
+
 def provider() -> str:
+    if preferred():
+        return preferred()
     if os.getenv('MINIMAX_API_KEY'):
         return 'minimax'
     if os.getenv('DEEPGRAM_API_KEY'):
@@ -42,7 +51,12 @@ def provider() -> str:
 async def synthesize(text: str) -> bytes:
     """Text in, MP3 bytes out. Deepgram preferred (hackathon sponsor & ~150ms latency)."""
     deepgram_key = os.getenv('DEEPGRAM_API_KEY')
-    if deepgram_key:
+    if preferred() == 'elevenlabs':
+        try:
+            return await _synthesize_elevenlabs(text)
+        except Exception:
+            pass  # e.g. out of credits: fall through to the other voices
+    if deepgram_key and preferred() != 'minimax':
         try:
             return await _synthesize_deepgram(text, deepgram_key)
         except Exception:
