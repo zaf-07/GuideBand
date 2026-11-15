@@ -18,8 +18,63 @@ from . import checkout, messaging, navigation, vision
 from .memory import Memory
 from .payments import Orders, PaymentError
 
-YES = re.compile(r"^\W*(yes|yeah|yep|yup|sure|confirm|go ahead|do it|send( it)?|pay( it| now)?|okay|ok)\b")
-NO = re.compile(r"^\W*(no|nope|cancel|stop|not now|never mind|don't|do not)\b")
+YES = re.compile(r"^\W*(yes|yeah|yep|yup|sure|confirm|go ahead|do it|send( it)?|pay( it| now)?|okay|ok)\b[\w\s,.!']{0,22}$")
+NO = re.compile(r"^\W*(no|nope|cancel|stop|not now|never mind|don't|do not)\b[\w\s,.!']{0,22}$")
+TIMER = re.compile(r'\b(?:set|start|put|make) (?:a |an |the |me a )?(?:\w+ )?(?:timer|alarm|reminder)\b|\bremind me\b|\btimer for\b')
+DURATION = re.compile(
+    r'\b(half an?|an?|\d+|[a-z]+(?:[ -][a-z]+)?) (second|minute|hour)s?\b|\b(half) an (hour)\b'
+)
+NUMBER_WORDS = {
+    'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9,
+    'ten': 10, 'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15, 'sixteen': 16,
+    'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20, 'thirty': 30, 'forty': 40, 'fifty': 50, 'sixty': 60,
+}
+UNIT_SECONDS = {'second': 1, 'minute': 60, 'hour': 3600}
+
+
+def _number(words: str) -> float | None:
+    words = words.strip().lower()
+    if words.isdigit():
+        return float(words)
+    if words in ('half a', 'half an'):
+        return 0.5
+    total = 0
+    for word in re.split(r'[ -]', words):
+        if word not in NUMBER_WORDS:
+            return None
+        total += NUMBER_WORDS[word]
+    return float(total) if total else None
+
+
+def parse_duration(text: str) -> int | None:
+    """Seconds in phrases like '15 minutes', 'fifteen minutes', 'twenty five minutes', 'half an hour'."""
+    value = text.lower()
+    for match in DURATION.finditer(value):
+        if match.group(3):
+            return 1800
+        amount = _number(match.group(1))
+        if amount is None:  # e.g. "in the next five minutes": try the last word alone
+            amount = _number(match.group(1).split()[-1])
+        if amount:
+            return int(amount * UNIT_SECONDS[match.group(2)])
+    return None
+
+
+def spoken_duration(seconds: int) -> str:
+    if seconds % 3600 == 0:
+        count, unit = seconds // 3600, 'hour'
+    elif seconds >= 60:
+        count, unit = round(seconds / 60), 'minute'
+    else:
+        count, unit = seconds, 'second'
+    return f'{count} {unit}{"s" if count != 1 else ""}'
+
+
+def timer_label(text: str) -> str:
+    """What the reminder is about: 'remind me to take my pills in ten minutes' -> 'take my pills'."""
+    match = re.search(r'\bremind me (?:to |that |about )?(.+?)(?: in | after |$)', text, re.IGNORECASE)
+    label = match.group(1).strip(' .,!?') if match else ''
+    return label if label and not DURATION.search(label.lower()) else ''
 FORGET = re.compile(r'\b(forget everything|(clear|delete|wipe|erase) (all )?(my |your )?memor(y|ies))\b')
 REMEMBER = re.compile(r'^\W*(please )?remember\b|\bsave this\b|\bremember (this|that|where)\b')
 PAY = re.compile(r'\b(buy|order|purchase|pay for|get me)\b')
@@ -76,6 +131,8 @@ def route(text: str, has_pending: bool = False) -> str:
         return 'pay_waiting'
     if FORGET.search(value):
         return 'forget'
+    if TIMER.search(value):
+        return 'timer'
     if NAV_STOP.search(value):
         return 'nav_stop'
     if GO_BACK.search(value):
@@ -160,6 +217,7 @@ class Assistant:
         if message and not order:
             intent = intent.replace('pay_', 'message_')
         reply = {'intent': intent, 'heard': text, 'say': '', 'order': None, 'confirm': None, 'open_url': None,
+                 'map_url': None, 'timer': None,
                  'warnings': [], 'detections': [], 'provider': None}
         if not intent.endswith(('_confirm', '_cancel', '_waiting')) and intent not in ('forget', 'nothing_pending', 'recall'):
             self.memory.add_note('asked', f'I asked: "{text}"')
@@ -221,14 +279,18 @@ class Assistant:
             await self._where(reply, image, mime, location)
         elif intent == 'place_set':
             reply['say'] = await self._save_place(text, location)
+        elif intent == 'timer':
+            self._timer(reply, text)
         elif intent == 'place_go':
             reply['say'] = await self._go_to_place(session, text, location)
             reply['navigating'] = self.navigator.active(session) is not None
+            reply['map_url'] = self._map_url(session, location)
         elif intent == 'nav_stop':
             reply['say'] = 'Navigation stopped.' if self.navigator.stop(session) else 'No navigation is running.'
         elif intent in ('navigate', 'go_back'):
             reply['say'] = await self._navigate(session, intent, text, location)
             reply['navigating'] = self.navigator.active(session) is not None
+            reply['map_url'] = self._map_url(session, location)
         elif intent == 'bridge':
             reply['say'] = 'Bridge is on. I will speak signs I can read, and show what you say as large text.'
         elif intent == 'help':
@@ -384,6 +446,27 @@ class Assistant:
             return await self.navigator.start_to(session, f'Your {name}', *location, place['lat'], place['lon'])
         except navigation.NavigationError as error:
             return str(error)
+
+    def _timer(self, reply: dict, text: str) -> None:
+        seconds = parse_duration(text)
+        if seconds is None:
+            reply['say'] = 'For how long? Say, for example: set a timer for ten minutes.'
+            return
+        if seconds > 24 * 3600:
+            reply['say'] = 'I can only set timers of up to a day.'
+            return
+        label = timer_label(text)
+        reply['timer'] = {'seconds': seconds, 'label': label}
+        about = f' to {label}' if label else ''
+        reply['say'] = f'Timer set for {spoken_duration(seconds)}. I will remind you{about}.'
+
+    def _map_url(self, session: str, location: tuple[float, float] | None) -> str | None:
+        """A Google Maps walking route to the place being navigated to, for anyone who wants to see it."""
+        active = self.navigator.active(session)
+        if active is None or location is None:
+            return None
+        return ('https://www.google.com/maps/dir/?api=1&travelmode=walking'
+                f'&origin={location[0]:.6f},{location[1]:.6f}&destination={active["lat"]:.6f},{active["lon"]:.6f}')
 
     async def _navigate(self, session: str, intent: str, text: str, location: tuple[float, float] | None) -> str:
         if location is None:

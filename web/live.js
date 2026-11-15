@@ -330,6 +330,24 @@
       item.append(link);
       window.open(reply.open_url, '_blank', 'noopener');
     }
+    if (reply.map_url) {
+      // The route on a map, for a companion or a judge to look at.
+      const map = document.createElement('a');
+      map.className = 'btn btn-primary btn-small msg-link';
+      map.href = reply.map_url; map.target = '_blank'; map.rel = 'noopener';
+      map.textContent = 'Open the map';
+      item.append(map);
+      window.open(reply.map_url, '_blank', 'noopener');
+    }
+    if (reply.timer) {
+      const { seconds, label } = reply.timer;
+      setTimeout(() => {
+        const text = label ? 'Reminder: ' + label + '.' : 'Your timer is up.';
+        addMessage('guide', text, 'timer');
+        speak(text);
+        buzz([300, 120, 300, 120, 300]);
+      }, seconds * 1000);
+    }
     if (reply.intent === 'nav_stop' || (reply.intent === 'navigate' && !reply.navigating)) el('navStatus').textContent = '';
     if (reply.navigating) el('navStatus').textContent = 'Directions are on. Keep walking — I will speak each turn.';
     if (reply.intent === 'bridge') selectTab('bridge');
