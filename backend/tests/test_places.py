@@ -89,6 +89,38 @@ class PlaceTests(unittest.TestCase):
         reply = run(self.assistant.respond('s', 'Tell Barbara where I am', location=HERE))
         self.assertIn('Your contacts are Tim.', reply['say'])
 
+    def test_more_ways_to_say_it(self):
+        self.assertEqual(route('Can you change my home address to San Francisco Bay University?'), 'place_set')
+        self.assertEqual(route('Set my work address to 1 Market Street San Francisco'), 'place_set')
+        self.assertEqual(route('I live at 161 Mission Falls Lane Fremont'), 'place_set')
+        self.assertEqual(route('Update my home to 12 Oak Street'), 'place_set')
+        saved = run(self.assistant.respond('s', 'Can you change my home address to San Francisco Bay University?'))
+        self.assertIn('Saved. Your home is', saved['say'])
+        self.assertIsNotNone(self.memory.place('home'))
+        run(self.assistant.respond('s', 'Set my work address to 1 Market Street San Francisco'))
+        self.assertIsNotNone(self.memory.place('work'))
+
+    def test_a_name_the_map_gets_wrong_is_looked_up_as_an_address(self):
+        calls = []
+
+        async def map_search(text, lat=None, lon=None):
+            calls.append(text)
+            if 'Mission Falls' in text:
+                return {'label': '161, Mission Falls Lane, Fremont', 'lat': 37.4845, 'lon': -121.9273}
+            return {'label': 'UCSF Mission Bay, Nelson Rising Lane', 'lat': 37.7687, 'lon': -122.3922}  # sounds alike, wrong
+
+        async def lookup(place):
+            return '161 Mission Falls Lane, Fremont, CA'
+
+        assistant = Assistant(self.memory, Orders(), geocode=map_search, lookup_address=lookup)
+        saved = run(assistant.respond('s', 'Change my home address to San Francisco Bay University'))
+        self.assertIn('San Francisco Bay University (161, Mission Falls Lane, Fremont)', saved['say'])
+        self.assertAlmostEqual(self.memory.place('home')['lat'], 37.4845)
+        # A real street address is trusted as it is, with no second lookup.
+        calls.clear()
+        run(assistant.respond('s', 'My home address is 161 Mission Falls Lane Fremont'))
+        self.assertEqual(len(calls), 1)
+
     def test_places_survive_erasing_memory(self):
         self.memory.save_place('home', 'Somewhere', 1.0, 2.0)
         self.memory.clear()

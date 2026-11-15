@@ -59,6 +59,9 @@ def spoken_distance(metres: float) -> str:
 
 def spoken_minutes(seconds: float) -> str:
     minutes = max(1, round(seconds / 60))
+    if minutes >= 90:  # a long walk reads better in hours
+        hours = round(minutes / 60, 1)
+        return f'{hours:g} hours'
     return f'{minutes} minute{"s" if minutes != 1 else ""}'
 
 

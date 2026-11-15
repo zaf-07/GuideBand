@@ -203,7 +203,7 @@ async def places_save(name: str = Form('home', max_length=20), address: str = Fo
                       lat: float | None = Form(None), lon: float | None = Form(None)):
     """Look an address up on the map and remember it under a name such as home."""
     try:
-        found = await navigation.geocode(address, lat, lon)
+        found = await assistant.resolve_place(address, (lat, lon) if lat is not None and lon is not None else None)
     except Exception as error:
         raise HTTPException(502, 'The map service could not be reached') from error
     if found is None:

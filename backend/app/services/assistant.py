@@ -91,7 +91,15 @@ MESSAGE = re.compile(
 )
 LOOSE_MESSAGE = re.compile(r'\b(tell|text|message|whatsapp|write|send)\b')
 PLACE_NAMES = {'home': 'home', 'house': 'home', 'work': 'work', 'office': 'work', 'school': 'school', 'dorm': 'dorm'}
-PLACE_SET = re.compile(r'\bmy (home|house|work|office|school|dorm)(?: address)? is (.+?)[\s.!]*$')
+PLACE_SET = re.compile(
+    r'\b(?:my (home|house|work|office|school|dorm)(?: address)? is(?: at| in)?'
+    r'|(?:change|set|update|make|save|put) my (home|house|work|office|school|dorm)(?: address)?(?: to| as| is| at)?'
+    r'|i live (?:at|in|on))\s+(.+?)[\s.!?]*$'
+)
+PLACE_LOOKUP_PROMPT = (
+    'Give the full street address of this place, on one line, with city and state. '
+    'Reply with the address only. If you do not know it, reply with the single word UNKNOWN.'
+)
 PLACE_GO = re.compile(
     r'\b(?:take|get|guide|walk|bring|lead) me (?:to )?(?:my )?(home|house|work|office|school|dorm)\b'
     r'|\b(?:directions?|route|way|go|going|head|navigate) (?:to )?(?:my )?(home|house|work|office|school|dorm)\b'
@@ -179,8 +187,10 @@ def message_body(text: str) -> str:
 
 class Assistant:
     def __init__(self, memory: Memory, orders: Orders, detector=None, navigator=None, place_name=None,
-                 read_frame=None, send_whatsapp=None, send_desktop=None, geocode=None) -> None:
+                 read_frame=None, send_whatsapp=None, send_desktop=None, geocode=None,
+                 lookup_address=None) -> None:
         self.geocode = geocode or navigation.geocode
+        self.lookup_address = lookup_address or self._lookup_address
         self.send_whatsapp = send_whatsapp or messaging.send_whatsapp
         self.send_desktop = send_desktop or messaging.send_desktop
         self.navigator = navigator or navigation.Navigator()
@@ -421,12 +431,47 @@ class Assistant:
         if location is not None:
             self.memory.add_note('place', reply['say'])
 
-    async def _save_place(self, text: str, location: tuple[float, float] | None) -> str:
-        """'My home address is 355 West San Fernando Street' -> remember where home is."""
-        match = PLACE_SET.search(text.lower().strip())
-        name, address = PLACE_NAMES[match.group(1)], text.strip()[match.start(2):].strip(' .!')
+    async def resolve_place(self, wanted: str, location: tuple[float, float] | None) -> dict | None:
+        """Coordinates for an address or a place name.
+
+        Street addresses go straight to the map. A place name the map does not really know (it answers with
+        something that merely sounds similar) is first turned into a street address by the language model.
+        """
+        near = location or (None, None)
+        found = await self.geocode(wanted, *near)
+        if re.search(r'\d', wanted):  # looks like a street address: trust the map
+            return found
+        words = [w for w in re.findall(r'[a-z]+', wanted.lower()) if len(w) > 3]
+        label = (found or {}).get('label', '').lower()
+        matched = sum(1 for w in words if w in label)
+        if found is not None and words and matched / len(words) >= 0.6:
+            return found
+        address = await self.lookup_address(wanted)
+        if address:
+            better = await self.geocode(address, *near)
+            if better is not None:
+                return {**better, 'label': f'{wanted.strip().title()} ({better["label"]})'}
+        return found
+
+    @staticmethod
+    async def _lookup_address(place: str) -> str:
+        """Ask the language model for a place's street address. Empty when it does not know."""
+        from . import llm
+        if not llm.configured():
+            return ''
         try:
-            found = await self.geocode(address, *(location or (None, None)))
+            answer = (await llm.complete([{'text': f'Place: {place}'}], system=PLACE_LOOKUP_PROMPT)).strip()
+        except Exception:
+            return ''
+        return '' if 'UNKNOWN' in answer.upper() or len(answer) > 160 else answer.splitlines()[0]
+
+    async def _save_place(self, text: str, location: tuple[float, float] | None) -> str:
+        """'My home address is ...', 'change my home address to ...', 'I live at ...' -> remember the place."""
+        match = PLACE_SET.search(text.lower().strip())
+        name = PLACE_NAMES[match.group(1) or match.group(2) or 'home']
+        address = text.strip()[match.start(3):].strip(' .!?')
+        try:
+            found = await self.resolve_place(address, location)
         except Exception:
             return 'I could not reach the map service to look up that address. Please try again.'
         if found is None:
