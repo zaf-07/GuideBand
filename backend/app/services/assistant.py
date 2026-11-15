@@ -92,14 +92,17 @@ MESSAGE = re.compile(
 LOOSE_MESSAGE = re.compile(r'\b(tell|text|message|whatsapp|write|send)\b')
 PLACE_NAMES = {'home': 'home', 'house': 'home', 'work': 'work', 'office': 'work', 'school': 'school', 'dorm': 'dorm'}
 PLACE_SET = re.compile(
-    r'\b(?:my (home|house|work|office|school|dorm)(?: address)? is(?: at| in)?'
-    r'|(?:change|set|update|make|save|put) my (home|house|work|office|school|dorm)(?: address)?(?: to| as| is| at)?'
+    r'\b(?:my (home|house|work|office|school|dorm)(?: address| mattress| adress)? is(?: at| in)?'
+    r'|(?:change|set|update|make|save|put) my (home|house|work|office|school|dorm)(?: address| mattress| adress)?(?: to| as| is| at)?'
     r'|i live (?:at|in|on))\s+(.+?)[\s.!?]*$'
 )
 PLACE_ASK = re.compile(
-    r'\b(?:change|set|update|save|edit) my (home|house|work|office|school|dorm)(?: address)?[\s.!?]*$'
+    r'\b(?:change|set|update|save|edit) my (home|house|work|office|school|dorm)(?: address| mattress| adress)?[\s.!?]*$'
 )
 PLACE_CHANGE_TTL_SECONDS = 120
+# An address has a number in it, or at least two real words (a place name).
+ADDRESS_LIKE = re.compile(r'\d|[A-Za-z]{3,}\W+[A-Za-z]{3,}')
+FILLER = re.compile(r"^(?:(?:can|could|would|will) you\b.*|please\b.*|get the\b.*|okay\b.*|um+\b.*|uh+\b.*|now\b.*|oh\b.*|i (?:said|mean)\b.*)$")
 PLACE_LOOKUP_PROMPT = (
     'Give the full street address of this place, on one line, with city and state. '
     'Reply with the address only. If you do not know it, reply with the single word UNKNOWN.'
@@ -532,11 +535,23 @@ class Assistant:
                 reply['intent'] = 'place_cancel'
                 reply['say'] = f'Okay. Your {name} address is unchanged.'
         else:
-            # Anything else is the address itself: a first try, or a correction.
-            address = text.strip(' .!?')
             match = PLACE_SET.search(value)
-            if match:
-                address = text.strip()[match.start(3):].strip(' .!?')
+            other = route(text)
+            if not match and other not in ('see', 'nothing_pending', 'place_set'):
+                # A different request ("take me to the supermarket"): leave the address alone and do that instead.
+                del self._place_changes[session]
+                return await self.respond(session, text, None, 'image/jpeg', location)
+            address = text.strip()[match.start(3):].strip(' .!?') if match else text.strip(' .!?')
+            if not ADDRESS_LIKE.search(address) or FILLER.match(address.lower()):
+                # A stray fragment ("can you please", "get the") is not an address: do not look it up.
+                change['misses'] = change.get('misses', 0) + 1
+                if change['misses'] >= 3:
+                    del self._place_changes[session]
+                    reply['intent'] = 'place_cancel'
+                    reply['say'] = f'I will leave your {name} address as it is. Say "change my {name} address" to try again.'
+                else:
+                    reply['say'] = 'Say the address: the street number, the street and the city. Or say cancel.'
+                return reply
             await self._offer_place(reply, change, address, location)
         return reply
 

@@ -53,12 +53,17 @@ def post(service: str, path: str, **fields) -> bool:
 
 
 class Sentences:
-    """Turns the speech service's running text into separate sentences, handed over promptly."""
+    """Turns the speech service's running text into separate sentences, handed over promptly.
+
+    The service keeps sending the whole sentence so far, and rewrites it as it goes: capitals and
+    punctuation change after the fact. So the part already handed over is remembered as a number of
+    words, not as text. Comparing text broke on every rewrite and sent the same words again.
+    """
 
     def __init__(self, deliver) -> None:
         self.deliver = deliver
         self.lock = threading.Lock()
-        self.done = ''       # the part of the running text that was already handed over
+        self.sent = 0        # how many words of the running sentence were already handed over
         self.pending = ''    # words heard since then
         self.started = 0.0
         self.changed = 0.0
@@ -67,17 +72,17 @@ class Sentences:
     def heard(self, text: str, final: bool) -> None:
         """Called by the speech service with everything said in the current sentence so far."""
         with self.lock:
-            text = text.strip()
-            if self.done and text.startswith(self.done):
-                text = text[len(self.done):].strip()
-            elif self.done:
-                self.done = ''  # a new sentence began
-            if text != self.pending:
+            words = text.split()
+            if len(words) < self.sent:
+                self.sent = 0  # shorter than what was sent: the service began a new sentence
+            fresh = ' '.join(words[self.sent:])
+            if fresh != self.pending:
                 if not self.pending:
                     self.started = time.monotonic()
-                self.pending, self.changed = text, time.monotonic()
+                self.pending, self.changed = fresh, time.monotonic()
             if final:
-                self._hand_over(reset=True)
+                self._hand_over()
+                self.sent = 0  # the service starts its next sentence from nothing
 
     def tick(self) -> None:
         """Called a few times a second: hand a sentence over once it has stopped changing."""
@@ -87,15 +92,17 @@ class Sentences:
             now = time.monotonic()
             quiet, longest = (FAST_QUIET_SECONDS, FAST_MAX_SECONDS) if self.fast else (QUIET_SECONDS, MAX_SENTENCE_SECONDS)
             if now - self.changed >= quiet or now - self.started >= longest:
-                self._hand_over(reset=False)
+                self._hand_over()
 
     def clear(self) -> None:
+        """Forget what is waiting, without handing it over (used while the band is muted)."""
         with self.lock:
-            self.done, self.pending = (self.done + ' ' + self.pending).strip(), ''
+            self.sent += len(self.pending.split())
+            self.pending = ''
 
-    def _hand_over(self, reset: bool) -> None:
+    def _hand_over(self) -> None:
         sentence, self.pending = self.pending, ''
-        self.done = '' if reset else (self.done + ' ' + sentence).strip()
+        self.sent += len(sentence.split())
         if sentence:
             self.deliver(sentence)
 

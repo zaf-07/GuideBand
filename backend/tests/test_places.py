@@ -106,6 +106,25 @@ class PlaceTests(unittest.TestCase):
         self.assertIn('unchanged', cancelled['say'])
         self.assertIsNone(self.memory.place('home'))
 
+    def test_another_request_leaves_the_address_conversation(self):
+        self.ask('Change my home address')
+        reply = self.ask('Buy me a coffee')                 # not an address: do it, and drop the conversation
+        self.assertEqual(reply['intent'], 'pay_quote')
+        self.ask('No')
+        self.assertEqual(self.ask('Remember this')['intent'], 'remember')
+
+    def test_stray_fragments_are_not_looked_up_as_addresses(self):
+        self.ask('Change my home address')
+        for fragment in ('can you please', 'get the', 'now now'):
+            reply = self.ask(fragment)
+            self.assertNotIn('I found', reply['say'])
+        self.assertEqual(reply['intent'], 'place_cancel')    # three misses: give up politely
+        self.assertIsNone(self.memory.place('home'))
+
+    def test_address_misheard_as_mattress(self):
+        offer = self.ask('Now change my home mattress to 161 Mission Falls Lane Fremont')
+        self.assertIn('I found 161, Mission Falls Lane, Fremont', offer['say'])
+
     def test_work_address(self):
         self.ask('Set my work address to 1 Market Street San Francisco')
         self.ask('Yes')
