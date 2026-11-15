@@ -193,3 +193,11 @@
 .zoom-step svg { width: 22px; height: 22px; stroke-width: 2.4; }
 .zoom-label { min-width: 46px; text-align: center; font-weight: 700; font-size: 16px; }
 .stage video { transition: transform .2s ease; }
+
+/* Zoom buttons stay put on hover: the icon must not slide and the circle must not jump */
+.zoom-step { border-radius: 50%; flex: none; display: grid; place-items: center; line-height: 0; }
+.zoom-step:hover { transform: none; filter: brightness(1.15); }
+.zoom-step:hover svg, .zoom-step svg { transform: none; }
+.zoom-step:active { transform: scale(.94); }
+.zoom-step:disabled { opacity: .45; cursor: default; filter: none; }
+.zoom-step:hover::after { opacity: 0; }
