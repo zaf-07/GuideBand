@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guideband_vexo as bridge  # noqa: E402  (sets up the kit paths and loads backend/.env)
 
 HEARTBEAT_SECONDS = 4
-RETRY_SECONDS = 3
+RETRY_SECONDS = (4, 8, 12)  # pause after the first, second and later failed attempts
 QUIET_SECONDS = 1.2      # words unchanged for this long: the sentence is over
 MAX_SENTENCE_SECONDS = 9  # never wait longer than this before handing a sentence over
 
@@ -144,7 +144,16 @@ def session(transport: str, service: str, language: str, deadline: float) -> Non
                 return
             sentences.heard(value, is_final)
 
-        ears = speech.create(language=language, endpointing=300).start(on_text)
+        ears = None
+        while ears is None:
+            try:
+                ears = speech.create(language=language, endpointing=300).start(on_text)
+            except Exception as problem:  # refused or unreachable: the band itself is fine, so keep it
+                print('Speech service not ready, trying again:', str(problem).splitlines()[0][:120], flush=True)
+                post(service, '/band/state', connected='true', name=band.name, battery=battery)
+                if time.monotonic() >= deadline:
+                    raise
+                band.wait(5)  # also keeps the Bluetooth link alive
 
         def feed(*args, **kwargs) -> None:
             if not muted.is_set():  # the assistant is talking: do not send its voice on
@@ -175,7 +184,9 @@ def session(transport: str, service: str, language: str, deadline: float) -> Non
 
 def run(transport: str, minutes: float, service: str, language: str) -> None:
     deadline = time.monotonic() + minutes * 60
+    failures = 0
     while time.monotonic() < deadline:
+        started = time.monotonic()
         try:
             session(transport, service, language, deadline)
         except KeyboardInterrupt:
@@ -183,8 +194,10 @@ def run(transport: str, minutes: float, service: str, language: str) -> None:
         except (SystemExit, Exception) as problem:  # not found, asleep, out of range: keep trying
             reason = str(problem).splitlines()[0][:120] if str(problem) else type(problem).__name__
             print('Band not connected:', reason, flush=True)
+        # A connection that lasted a while was a good one: start the pauses from the beginning again.
+        failures = 0 if time.monotonic() - started > 30 else failures + 1
         post(service, '/band/state', connected='false')
-        time.sleep(RETRY_SECONDS)
+        time.sleep(RETRY_SECONDS[min(failures, len(RETRY_SECONDS)) - 1])
     post(service, '/band/state', connected='false')
     print('Stopped. The band microphone is off.', flush=True)
 
