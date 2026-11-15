@@ -43,7 +43,7 @@
         if (el('webBandWidget')) el('webBandWidget').style.display = 'flex';
       } else {
         if (el('webBandDot')) el('webBandDot').className = 'dot dot-bad';
-        if (el('webBandLabel')) el('webBandLabel').textContent = 'Vexo Band searching…';
+        if (el('webBandLabel')) el('webBandLabel').textContent = 'Vexo band not connected';
       }
       el('qrLink').href = api + '/pay/qr.png?item=Coffee&amount=4.50';
     } catch {
@@ -517,7 +517,7 @@
       } catch (err) {
         addMessage('guide', 'Wristband connection failed: ' + err.message);
       } finally {
-        btn.textContent = '🎤 Listen on Band';
+        btn.textContent = 'Listen on band';
         btn.disabled = false;
         micState('Ready', 'on');
       }
@@ -762,13 +762,22 @@
   // ---------- Settings: band connection and permissions ----------
   function showBand(band) {
     const connected = Boolean(band && band.connected);
+    // Keep the pill in the header in step with the Settings card.
+    el('webBandDot').className = 'dot' + (connected ? '' : ' dot-bad');
+    el('webBandLabel').textContent = connected
+      ? (band.band_name || 'Vexo band') + ' · ' + (band.battery?.percent ?? '?') + '%'
+      : 'Vexo band not connected';
     el('bandDot').className = 'dot' + (connected ? '' : ' dot-bad');
     el('bandStatus').textContent = connected ? 'Connected — ' + (band.band_name || 'Vexo band') : 'Not connected';
     el('bandDetail').textContent = connected
       ? 'Battery ' + (band.battery?.percent ?? '?') + '% · ' + String(band.transport || 'ble').toUpperCase() + ' · firmware ' + (band.firmware || '?')
       : 'Double-tap the band so its light blinks blue, keep it close, and close anything else connected to it. Then check again.';
   }
+  let bandChecking = false;
   el('bandCheck').onclick = async () => {
+    if (bandChecking) return;
+    bandChecking = true;
+    el('webBandLabel').textContent = 'Looking for the band…';
     const button = el('bandCheck');
     button.disabled = true;
     button.textContent = 'Checking… about 10 seconds';
@@ -777,7 +786,11 @@
     catch (error) { el('bandStatus').textContent = 'Could not check: ' + error.message; }
     button.disabled = false;
     button.textContent = 'Check connection';
+    bandChecking = false;
+    if (el('webBandLabel').textContent === 'Looking for the band…') el('webBandLabel').textContent = 'Vexo band not connected';
   };
+  // Look for the band once when the page opens, so it is ready without a visit to Settings.
+  setTimeout(() => { if (online) el('bandCheck').onclick(); }, 2500);
   el('bandListen').onclick = () => { selectTab('assistant'); el('webBandListenBtn')?.click(); };
 
   const permissionText = { granted: 'Allowed', prompt: 'Not allowed yet', denied: 'Blocked — allow it from the lock icon in the address bar', on: 'On', unknown: 'Ask to find out' };

@@ -8,7 +8,7 @@
   <meta name="description" content="GuideBand is a hands-free AI assistant for blind and low-vision people. It sees hazards, remembers what it saw, and acts for you — only after a spoken yes.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="landing.css">
-  <link rel="stylesheet" href="live.css?v=15">
+  <link rel="stylesheet" href="live.css?v=16">
   <title>GuideBand — The AI that sees, remembers and acts for you</title>
 </head>
 <body>
@@ -163,21 +163,11 @@
       <div class="live glass" id="live">
         <div class="live-bar">
           <p class="live-status" role="status"><span class="dot dot-off" id="liveDot"></span><span id="liveStatus">Checking the GuideBand service…</span></p>
-          <div class="band-widget" id="webBandWidget" style="margin-left: auto; display: flex; align-items: center; gap: 0.6rem; background: var(--glass-strong); padding: 0.35rem 0.8rem; border-radius: 999px; border: 1px solid var(--glass-border);">
-            <span class="dot" id="webBandDot"></span>
-            <span style="font-size: 0.84rem; font-weight: 600;" id="webBandLabel">Vexo-HACK-20 · 95% (BLE)</span>
-            <button class="btn btn-primary btn-small" id="webBandListenBtn" type="button" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">🎤 Listen on Band</button>
+          <div class="band-widget" id="webBandWidget">
+            <span class="dot dot-off" id="webBandDot"></span>
+            <span class="band-label" id="webBandLabel">Vexo band not connected</span>
+            <button class="btn btn-primary btn-small" id="webBandListenBtn" type="button">Listen on band</button>
           </div>
-          <details class="live-settings">
-            <summary>Connection</summary>
-            <form id="apiForm">
-              <label for="apiInput">GuideBand service address</label>
-              <div class="row">
-                <input id="apiInput" type="url" inputmode="url" placeholder="http://localhost:8000" autocomplete="off">
-                <button class="btn btn-primary btn-small" type="submit">Save</button>
-              </div>
-            </form>
-          </details>
         </div>
 
         <div class="live-offline" id="liveOffline" hidden>
@@ -297,6 +287,7 @@
                 <button class="btn btn-glass glass btn-small" type="button" id="memoryRefresh">Refresh</button>
                 <button class="btn btn-glass glass btn-small" type="button" id="memoryClear">Erase memory</button>
               </div>
+            </div>
 
             <div class="panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
               <section class="settings-card" aria-labelledby="setBand">
@@ -319,6 +310,17 @@
                 <button class="btn btn-primary btn-small" type="button" id="allowAll">Allow everything</button>
               </section>
 
+              <section class="settings-card" aria-labelledby="setService">
+                <h3 id="setService">GuideBand service</h3>
+                <form class="service-form" id="apiForm">
+                  <label for="apiInput">Service address</label>
+                  <div class="row">
+                    <input id="apiInput" type="url" inputmode="url" placeholder="http://localhost:8000" autocomplete="off">
+                    <button class="btn btn-primary btn-small" type="submit">Save</button>
+                  </div>
+                </form>
+              </section>
+
               <section class="settings-card" aria-labelledby="setOptions">
                 <h3 id="setOptions">Options</h3>
                 <div class="settings-options">
@@ -338,7 +340,6 @@
               <label class="toggle"><input type="checkbox" id="autoRemember"><span>Remember what I see, every 20 seconds</span></label>
                 </div>
               </section>
-            </div>
             </div>
           </div>
         </div>
