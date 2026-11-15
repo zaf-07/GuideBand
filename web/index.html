@@ -198,7 +198,7 @@
                 <button class="btn btn-glass glass" type="button" id="flipBtn">Flip camera</button>
               </div>
               <label class="toggle"><input type="checkbox" id="micToggle" checked><span>Microphone always on</span></label>
-              <label class="toggle"><input type="checkbox" id="wakeToggle" checked><span>Wait for the word “Guide” before acting</span></label>
+              <label class="toggle"><input type="checkbox" id="wakeToggle"><span>Only act when I say “Guide” first (for noisy rooms)</span></label>
               <label class="toggle"><input type="checkbox" id="hazardToggle" checked><span>Speak hazard warnings</span></label>
               <label class="toggle"><input type="checkbox" id="voiceToggle" checked><span>Speak replies</span></label>
               <label class="toggle"><input type="checkbox" id="autoDescribe"><span>Tell me when the scene changes</span></label>
@@ -219,7 +219,7 @@
 
             <div class="panel" role="tabpanel" id="panel-assistant" aria-labelledby="tab-assistant">
               <ol class="log" id="liveLog" aria-live="polite" aria-label="Conversation">
-                <li class="msg msg-guide"><p>Hi, I’m GuideBand. Say “Guide”, then ask what’s in front of you, where you are, or to pay for something.</p></li>
+                <li class="msg msg-guide"><p>Hi, I’m GuideBand. The microphone is on — just ask what’s in front of you, where you are, or to pay for something.</p></li>
               </ol>
               <div class="confirm" id="confirmBar" hidden>
                 <p id="confirmText">Confirm?</p>
@@ -242,7 +242,7 @@
               </div>
               <form class="ask" id="askForm">
                 <label class="visually-hidden" for="askInput">Type a command</label>
-                <input id="askInput" type="text" placeholder="Say “Guide, …” or type here" autocomplete="off" maxlength="300">
+                <input id="askInput" type="text" placeholder="Just talk, or type here" autocomplete="off" maxlength="300">
                 <button class="btn btn-primary btn-small" type="submit">Send</button>
               </form>
               <p class="hint">To try paying by code, show the camera <a id="qrLink" href="#" target="_blank" rel="noopener">this demo payment code</a> on another screen and say “Guide, pay this”.</p>
@@ -262,8 +262,11 @@
                 <p class="bridge-caption bridge-sign" id="signOut" aria-live="polite">—</p>
                 <p class="sign-live"><span id="signLive">No sign in view</span><span class="sign-meter" aria-hidden="true"><i id="signMeter"></i></span></p>
               </div>
-              <div>
-                <p class="eyebrow">You said</p>
+              <div class="facing" id="facing">
+                <div class="row wrap bridge-head">
+                  <p class="eyebrow">You said</p>
+                  <button class="btn btn-primary btn-small" type="button" id="facingBtn">Show them — big view</button>
+                </div>
                 <p class="bridge-caption" id="bridgeCaption" aria-live="polite">What you say appears here in large text.</p>
                 <div class="spell" id="spellOut" aria-hidden="true"></div>
               </div>

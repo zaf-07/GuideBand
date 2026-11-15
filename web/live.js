@@ -81,8 +81,17 @@
     utterance.onend = () => { lastSpeechEnd = Date.now(); };
     speechSynthesis.speak(utterance);
   }
+  const plain = text => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const recentlySpoken = [];
+  /** True when the microphone just heard GuideBand's own voice coming out of the speakers. */
+  function isEcho(heard) {
+    const text = plain(heard), now = Date.now();
+    return text.length >= 4 && recentlySpoken.some(item => now - item.at < 20000 && item.text.includes(text));
+  }
   function speak(text, { warning = false, force = false } = {}) {
     if (!('speechSynthesis' in window) || !text) return;
+    recentlySpoken.push({ text: plain(text), at: Date.now() });
+    if (recentlySpoken.length > 6) recentlySpoken.shift();
     if (warning) {
       // Warnings never talk over an answer, and stay quiet during a Bridge conversation.
       if (!el('hazardToggle').checked || activeTab === 'bridge' || isSpeaking() || Date.now() - lastReplyAt < 1500) return;
@@ -166,7 +175,7 @@
 
   // ---------- See: continuous local hazard warnings ----------
   const sources = { gemini: 'Gemini', groq: 'Groq', local: 'on-device' };
-  const spokenAt = new Map();
+  const spokenAt = new Map(), seenAt = new Map(), waiting = new Set();
   let looping = false, busy = false, personSeenAt = 0;
   let candidateKey = '', stable = 0, narratedKey = '', narratedAt = 0;
 
@@ -202,8 +211,19 @@
             if (activeTab !== 'bridge') drawBoxes(scene.detections); // Bridge draws the hand instead
             if (scene.detections.some(d => d.label === 'person')) personSeenAt = Date.now();
             el('liveWarning').textContent = activeTab === 'bridge' ? '' : scene.warnings.join(' ');
-            const fresh = scene.warnings.find(w => Date.now() - (spokenAt.get(w) || 0) > 8000);
-            if (fresh && activeTab !== 'bridge') { spokenAt.set(fresh, Date.now()); speak(fresh, { warning: true }); buzz(400); }
+            // Speak a warning when it first appears (or returns after being gone), then stay quiet about it.
+            const nowMs = Date.now();
+            for (const warning of scene.warnings) {
+              const gone = nowMs - (seenAt.get(warning) || 0) > 6000;
+              if (gone || nowMs - (spokenAt.get(warning) || 0) > 60000) waiting.add(warning);
+              seenAt.set(warning, nowMs);
+            }
+            for (const warning of [...waiting]) if (!scene.warnings.includes(warning)) waiting.delete(warning);
+            const fresh = [...waiting][0];
+            if (fresh && activeTab !== 'bridge' && el('hazardToggle').checked && !isSpeaking() && nowMs - lastReplyAt > 1500) {
+              waiting.delete(fresh); spokenAt.set(fresh, nowMs);
+              speak(fresh, { warning: true }); buzz(400);
+            }
             // Narrate only when what is in view has changed and stayed changed.
             const key = [...new Set(scene.detections.filter(d => d.area >= 0.02).map(d => d.label))].sort().join(',');
             if (key === candidateKey) stable++; else { candidateKey = key; stable = 0; }
@@ -296,19 +316,24 @@
     else el('askInput').placeholder = 'Hearing: ' + text;
   }
   function onFinal(text) {
-    el('askInput').placeholder = 'Say “Guide, …” or type here';
-    if (!text || isSpeaking() || Date.now() - lastSpeechEnd < 700) return; // that was our own voice
+    el('askInput').placeholder = micPlaceholder();
+    if (!text) return;
     const wake = text.match(WAKE);
+    const command = wake ? wake[1].trim() : '';
     if (activeTab === 'bridge') {
-      // In a Bridge conversation everything said becomes large text for the other person.
+      // In a Bridge conversation everything said becomes text and signs for the other person.
+      if (isEcho(text)) return;
       showSpeech(text);
-      if (wake && wake[1].trim()) ask(wake[1]);
+      if (command) ask(command);
       return;
     }
+    // "Guide, ..." always gets through, even while GuideBand is talking.
+    if (command) { stopSpeaking(); buzz(60); return ask(command); }
+    if (isSpeaking() || Date.now() - lastSpeechEnd < 1200 || isEcho(text)) return; // that was our own voice
     if (!el('confirmBar').hidden && /^(yes|yeah|yep|no|nope|cancel)\b/i.test(text)) { buzz(60); return ask(text); }
-    if (!el('wakeToggle').checked) { buzz(60); return ask(text); }
-    if (wake && wake[1].trim()) { buzz(60); ask(wake[1]); }
+    if (!el('wakeToggle').checked && text.split(/\s+/).length >= 2) { buzz(60); ask(text); }
   }
+  const micPlaceholder = () => el('wakeToggle').checked ? 'Say “Guide, …” or type here' : 'Just talk, or type here';
   function startMic() {
     if (!Recognition || recognizer || micBlocked || !el('micToggle').checked) return;
     const r = new Recognition();
@@ -384,29 +409,43 @@
   let spellRun = 0;
   async function fingerspell(text) {
     const run = ++spellRun, strip = el('spellOut');
-    const letters = text.toUpperCase().replace(/[^A-Z ]/g, '').replace(/ +/g, ' ').trim().slice(0, 60);
+    const words = text.toUpperCase().replace(/[^A-Z ]/g, '').split(/ +/).filter(Boolean).slice(0, 14);
     strip.replaceChildren();
-    for (const letter of letters) {
-      if (run !== spellRun) return; // something newer was said
-      if (letter === ' ') {
-        const gap = document.createElement('span');
-        gap.className = 'spell-gap';
-        strip.append(gap);
-        await wait(250);
-        continue;
+    for (const word of words) {
+      const group = document.createElement('span'); // letters of one word stay together when the row wraps
+      group.className = 'spell-word';
+      strip.append(group);
+      for (const letter of word) {
+        if (run !== spellRun) return; // something newer was said
+        const card = document.createElement('figure'), image = new Image(), caption = document.createElement('figcaption');
+        card.className = 'spell-card';
+        image.alt = '';
+        image.onerror = () => image.remove(); // the letter itself still shows
+        image.src = signImage(letter);
+        caption.textContent = letter;
+        card.append(image, caption);
+        group.append(card);
+        strip.scrollTop = strip.scrollHeight;
+        await wait(330);
       }
-      const card = document.createElement('figure'), image = new Image(), caption = document.createElement('figcaption');
-      card.className = 'spell-card';
-      image.alt = '';
-      image.onerror = () => image.remove(); // the letter itself still shows
-      image.src = signImage(letter);
-      caption.textContent = letter;
-      card.append(image, caption);
-      strip.append(card);
-      strip.scrollLeft = strip.scrollWidth;
-      await wait(380);
+      await wait(200);
     }
   }
+  // Big view to turn towards the other person: only what you said, as large as the screen allows.
+  const facingView = el('facing');
+  el('facingBtn').onclick = () => {
+    const open = !facingView.classList.contains('facing-open');
+    facingView.classList.toggle('facing-open', open);
+    el('facingBtn').textContent = open ? 'Close big view' : 'Show them — big view';
+    if (open) facingView.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen();
+  };
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && facingView.classList.contains('facing-open')) {
+      facingView.classList.remove('facing-open');
+      el('facingBtn').textContent = 'Show them — big view';
+    }
+  });
   function showSpeech(text) {
     el('bridgeCaption').textContent = text;
     fingerspell(text);
@@ -529,7 +568,7 @@
       tab.tabIndex = selected ? 0 : -1;
       el(tab.getAttribute('aria-controls')).hidden = !selected;
     });
-    el('askInput').placeholder = 'Say “Guide, …” or type here';
+    el('askInput').placeholder = micPlaceholder();
     if (name === 'memory') loadMemory();
     if (name === 'family') loadContacts();
     if (name === 'bridge') el('liveWarning').textContent = '';
