@@ -354,6 +354,23 @@ def band_state_update(connected: bool = Form(...), name: str = Form(''), battery
     return {'ok': True}
 
 
+# While the assistant is speaking, the band must not pass its voice back in as a request.
+band_muted_until = 0.0
+
+
+@app.post('/band/mute')
+def band_mute_set(on: bool = Form(...)):
+    """The page calls this when the assistant starts (on) and stops (off) speaking."""
+    global band_muted_until
+    band_muted_until = time.time() + (30.0 if on else 0.5)  # a short tail lets the room go quiet
+    return {'muted': on}
+
+
+@app.get('/band/mute')
+def band_mute_get():
+    return {'muted': time.time() < band_muted_until}
+
+
 @app.post('/band/heard', status_code=201)
 def band_heard_add(text: str = Form(..., min_length=1, max_length=300)):
     global band_counter

@@ -11,12 +11,21 @@ and each finished sentence is handed to the local service, where the open live d
 handles it exactly like speech from the laptop microphone. If the band drops out
 of range or goes to sleep, the script keeps looking for it and reconnects by itself.
 
+Two things keep it quick and clean:
+
+* A sentence is handed over as soon as its words stop changing for a moment. In a
+  loud room the speech service may never decide that a sentence has ended.
+* While the assistant is speaking, the band's audio is not sent on, so the
+  assistant never hears its own voice through the band.
+
 Only the team's own band (Vexo-HACK-20) is ever connected. Audio is not stored.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -28,6 +37,8 @@ import guideband_vexo as bridge  # noqa: E402  (sets up the kit paths and loads 
 
 HEARTBEAT_SECONDS = 4
 RETRY_SECONDS = 3
+QUIET_SECONDS = 1.2      # words unchanged for this long: the sentence is over
+MAX_SENTENCE_SECONDS = 9  # never wait longer than this before handing a sentence over
 
 
 def post(service: str, path: str, **fields) -> bool:
@@ -37,6 +48,52 @@ def post(service: str, path: str, **fields) -> bool:
             return response.status < 300
     except Exception:
         return False
+
+
+class Sentences:
+    """Turns the speech service's running text into separate sentences, handed over promptly."""
+
+    def __init__(self, deliver) -> None:
+        self.deliver = deliver
+        self.lock = threading.Lock()
+        self.done = ''       # the part of the running text that was already handed over
+        self.pending = ''    # words heard since then
+        self.started = 0.0
+        self.changed = 0.0
+
+    def heard(self, text: str, final: bool) -> None:
+        """Called by the speech service with everything said in the current sentence so far."""
+        with self.lock:
+            text = text.strip()
+            if self.done and text.startswith(self.done):
+                text = text[len(self.done):].strip()
+            elif self.done:
+                self.done = ''  # a new sentence began
+            if text != self.pending:
+                if not self.pending:
+                    self.started = time.monotonic()
+                self.pending, self.changed = text, time.monotonic()
+            if final:
+                self._hand_over(reset=True)
+
+    def tick(self) -> None:
+        """Called a few times a second: hand a sentence over once it has stopped changing."""
+        with self.lock:
+            if not self.pending:
+                return
+            now = time.monotonic()
+            if now - self.changed >= QUIET_SECONDS or now - self.started >= MAX_SENTENCE_SECONDS:
+                self._hand_over(reset=False)
+
+    def clear(self) -> None:
+        with self.lock:
+            self.done, self.pending = (self.done + ' ' + self.pending).strip(), ''
+
+    def _hand_over(self, reset: bool) -> None:
+        sentence, self.pending = self.pending, ''
+        self.done = '' if reset else (self.done + ' ' + sentence).strip()
+        if sentence:
+            self.deliver(sentence)
 
 
 def session(transport: str, service: str, language: str, deadline: float) -> None:
@@ -52,25 +109,59 @@ def session(transport: str, service: str, language: str, deadline: float) -> Non
               'tell the people around you.', flush=True)
         post(service, '/band/state', connected='true', name=band.name, battery=battery)
 
-        def on_text(value: str, is_final: bool) -> None:
-            value = value.strip()
-            if is_final and value:
-                print('Heard:', value, flush=True)
-                post(service, '/band/heard', text=value)
+        muted = threading.Event()
+        alive = threading.Event()
+        alive.set()
 
-        # A slightly longer pause ends a sentence, so a request is not cut in the middle.
-        ears = speech.create(language=language, endpointing=400).start(on_text)
-        feed = ears.feed
+        def deliver(sentence: str) -> None:
+            if muted.is_set():
+                return
+            print('Heard:', sentence, flush=True)
+            post(service, '/band/heard', text=sentence)
+
+        sentences = Sentences(deliver)
+
+        def watch_mute() -> None:
+            """Ask the service a few times a second whether the assistant is speaking."""
+            while alive.is_set():
+                try:
+                    with urllib.request.urlopen(service + '/band/mute', timeout=2) as response:
+                        speaking = bool(json.load(response).get('muted'))
+                except Exception:
+                    speaking = False
+                if speaking and not muted.is_set():
+                    muted.set()
+                    sentences.clear()
+                elif not speaking and muted.is_set():
+                    sentences.clear()
+                    muted.clear()
+                time.sleep(0.2)
+
+        threading.Thread(target=watch_mute, daemon=True).start()
+
+        def on_text(value: str, is_final: bool) -> None:
+            if muted.is_set():
+                return
+            sentences.heard(value, is_final)
+
+        ears = speech.create(language=language, endpointing=300).start(on_text)
+
+        def feed(*args, **kwargs) -> None:
+            if not muted.is_set():  # the assistant is talking: do not send its voice on
+                ears.feed(*args, **kwargs)
+
         band.on('audio', feed)
         try:
             band.configure(audio=True)
             next_beat = 0.0
             while time.monotonic() < deadline:
                 band.wait(0.2)  # raises when the connection is lost
+                sentences.tick()
                 if time.monotonic() >= next_beat:
                     next_beat = time.monotonic() + HEARTBEAT_SECONDS
                     post(service, '/band/state', connected='true', name=band.name, battery=battery)
         finally:
+            alive.clear()
             try:
                 band.configure(audio=False)
             except Exception:

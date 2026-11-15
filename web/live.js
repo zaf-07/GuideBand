@@ -70,7 +70,15 @@
   const buzz = pattern => { try { navigator.vibrate?.(pattern); } catch {} };
   const player = new Audio();
   const isSpeaking = () => cloudPlaying || speechSynthesis.speaking;
+  /** Tell the service the assistant is talking, so the band does not pass that voice back as a request. */
+  function muteBand(on) {
+    if (!bandLive) return;
+    const body = new FormData();
+    body.append('on', String(on));
+    fetch(api + '/band/mute', { method: 'POST', body, keepalive: true }).catch(() => {});
+  }
   function stopSpeaking() {
+    if (isSpeaking()) muteBand(false);
     speechSynthesis.cancel();
     player.pause();
     cloudPlaying = false;
@@ -81,18 +89,21 @@
     const response = await fetch(api + '/speech', { method: 'POST', body });
     if (!response.ok) throw new Error('voice unavailable');
     const url = URL.createObjectURL(await response.blob());
-    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); };
+    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); muteBand(false); };
     player.onended = done;
     player.onerror = done;
     player.src = url;
     cloudPlaying = true;
+    muteBand(true);
     try { await player.play(); } catch (error) { done(); throw error; }
   }
   function speakLocal(text, warning) {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = warning ? 1.08 : 1;
-    utterance.onend = () => { lastSpeechEnd = Date.now(); };
+    utterance.onstart = () => muteBand(true);
+    utterance.onend = () => { lastSpeechEnd = Date.now(); muteBand(false); };
+    utterance.onerror = () => muteBand(false);
     speechSynthesis.speak(utterance);
   }
   const plain = text => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
