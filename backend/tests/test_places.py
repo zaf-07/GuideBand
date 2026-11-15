@@ -67,6 +67,28 @@ class PlaceTests(unittest.TestCase):
         self.assertIn('could not find', reply['say'])
         self.assertIsNone(self.memory.place('home'))
 
+    def test_misheard_names_still_reach_the_right_contact(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        self.memory.add_contact('Zack', '+14155550101')
+        self.assertEqual(self.memory.find_contact('tell my team where I am')['name'], 'Tim')
+        self.assertEqual(self.memory.find_contact('text zach saying hello')['name'], 'Zack')
+        self.assertEqual(self.memory.find_contact('Tell Tim I am late')['name'], 'Tim')
+        self.assertIsNone(self.memory.find_contact('read the text you can see'))
+        self.assertIsNone(self.memory.find_contact('what is in front of me'))
+
+    def test_loose_phrasing_through_a_noisy_microphone(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        draft = run(self.assistant.respond('s', 'Hell, my team friend. My friend teams. Tell my team where I am', location=HERE))
+        self.assertEqual(draft['intent'], 'message')
+        self.assertEqual(draft['confirm'], 'Send to Tim on WhatsApp?')
+        self.assertEqual(run(self.assistant.respond('s', 'No'))['intent'], 'message_cancel')
+        self.assertEqual(run(self.assistant.respond('s', 'Read the text you can see'))['intent'], 'see')
+
+    def test_unknown_person_lists_the_contacts(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        reply = run(self.assistant.respond('s', 'Tell Barbara where I am', location=HERE))
+        self.assertIn('Your contacts are Tim.', reply['say'])
+
     def test_places_survive_erasing_memory(self):
         self.memory.save_place('home', 'Somewhere', 1.0, 2.0)
         self.memory.clear()

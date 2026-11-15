@@ -6,6 +6,7 @@ user can wipe at any time.
 """
 from __future__ import annotations
 
+import difflib
 import os
 import re
 import sqlite3
@@ -47,6 +48,13 @@ def age(seconds: float) -> str:
         return f'{hours} hour{"s" if hours != 1 else ""} ago'
     days = round(hours / 24)
     return f'{days} day{"s" if days != 1 else ""} ago'
+
+
+def _sound(word: str) -> str:
+    """A rough sound key: consonants only, with common spellings merged (Zack = Zach = Zak)."""
+    key = word.lower().replace('ck', 'k').replace('ch', 'k').replace('ph', 'f').replace('c', 'k').replace('z', 's')
+    key = key[0] + re.sub(r'[aeiouyh]', '', key[1:])
+    return re.sub(r'(.)\1+', r'\1', key)
 
 
 class Memory:
@@ -147,12 +155,28 @@ class Memory:
         return [{'name': r[0], 'phone': r[1]} for r in rows]
 
     def find_contact(self, text: str) -> dict | None:
-        """The contact whose name appears in what the user said."""
+        """The contact the user named. Exact names win; otherwise a name that sounds alike is accepted,
+        because speech recognition often hears "Tim" as "team" or "Zack" as "Zach"."""
         words = text.lower()
-        for contact in self.contacts():
+        contacts = self.contacts()
+        for contact in contacts:
             if re.search(rf'\b{re.escape(contact["name"].lower())}\b', words):
                 return contact
-        return None
+        heard = {word[:-1] if word.endswith('s') and len(word) > 3 else word for word in re.findall(r"[a-z]+", words)}
+        heard -= STOP_WORDS | {'tell', 'text', 'message', 'send', 'write', 'friend', 'please', 'hey', 'whatsapp'}
+        heard -= {'them', 'they', 'their', 'there', 'then', 'than', 'this', 'that', 'time', 'some', 'same', 'want', 'what'}  # too common to be a name
+        best, best_score = None, 0.0
+        for contact in contacts:
+            name = contact['name'].lower().split()[0]
+            for word in heard:
+                if len(word) < 3 or word[0] != name[0]:
+                    continue
+                score = difflib.SequenceMatcher(None, word, name).ratio()
+                if _sound(word) == _sound(name):
+                    score = max(score, 0.9)
+                if score > best_score:
+                    best, best_score = contact, score
+        return best if best_score >= 0.74 else None
 
     def record_location(self, lat: float, lon: float, now: float | None = None) -> bool:
         """Add a breadcrumb to the walked path. Skips points that barely moved."""
@@ -219,7 +243,7 @@ class Memory:
 
     async def recall(self, question: str) -> dict:
         # The log of past requests only helps when the question is about them.
-        about_requests = bool(re.search(r'(ask|asked|say|said|request)', question.lower()))
+        about_requests = bool(re.search(r'\b(ask|asked|say|said|request)', question.lower()))
         context = self.context(include_requests=about_requests)
         if context and llm.configured():
             try:

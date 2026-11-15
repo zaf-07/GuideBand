@@ -500,7 +500,7 @@
         const imageBlob = await frame(640);
         const body = new FormData();
         body.append('seconds', '7');
-        body.append('language', 'multi');
+        body.append('language', 'en'); // English only: the multilingual mode mishears names
         if (imageBlob) body.append('image', imageBlob, 'frame.jpg');
         body.append('session', session);
         addLocation(body);

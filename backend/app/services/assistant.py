@@ -34,6 +34,7 @@ MESSAGE = re.compile(
     r'^\W*(?:please |can you |could you )*(tell|text|message|whatsapp|send|write)\s+(?:a (?:message|text|whatsapp) )?(?:to )?(?!me\b)'
     r'|\bshare my location\b|\b(?:send|write) (?:a )?(?:whatsapp |text )?message to\b'
 )
+LOOSE_MESSAGE = re.compile(r'\b(tell|text|message|whatsapp|write|send)\b')
 PLACE_NAMES = {'home': 'home', 'house': 'home', 'work': 'work', 'office': 'work', 'school': 'school', 'dorm': 'dorm'}
 PLACE_SET = re.compile(r'\bmy (home|house|work|office|school|dorm)(?: address)? is (.+?)[\s.!]*$')
 PLACE_GO = re.compile(
@@ -49,7 +50,7 @@ NAV = re.compile(
 )
 NAV_STOP = re.compile(r'\b(stop|cancel|end) (the )?(navigation|directions|route|guiding)\b')
 GO_BACK = re.compile(r'\b(take|guide|walk|lead|bring) me back\b|\bway back\b|\bgo back to (the )?start\b')
-READ = re.compile(r'read|what does (it|that|this|the) .*say|what is written')
+READ = re.compile(r'\bread\b|\bwhat does (it|that|this|the) .*\bsay\b|\bwhat is written\b')
 READ_QUESTION = (
     'Read aloud every piece of text you can see in this image, word for word, starting with the largest. '
     'Say only the text itself. If there is no readable text, say that you cannot see any text.'
@@ -147,6 +148,8 @@ class Assistant:
         message = self.pending_message(session)
         call = self._calls.get(session)
         intent = route(text, bool(order or message))
+        if intent == 'see' and LOOSE_MESSAGE.search(text.lower()) and self.memory.find_contact(text):
+            intent = 'message'  # e.g. "hey, tell my friend Tim ..." heard through a noisy microphone
         if call and not order and not message:
             if YES.search(text.lower()):
                 intent = 'call_confirm'
@@ -271,7 +274,9 @@ class Assistant:
     async def _compose_message(self, reply: dict, session: str, text: str, location: tuple[float, float] | None) -> None:
         contact = self.memory.find_contact(text)
         if contact is None:
-            reply['say'] = 'I do not have that person in your contacts. Add them in the Family tab first.'
+            names = [item['name'] for item in self.memory.contacts()]
+            known = ' Your contacts are ' + ', '.join(names) + '.' if names else ' You have no contacts yet: add them in the Family tab.'
+            reply['say'] = 'I did not catch who to message.' + known + ' Say, for example: tell ' + (names[0] if names else 'Mom') + ' where I am.'
             return
         body = message_body(text)
         if not body:
