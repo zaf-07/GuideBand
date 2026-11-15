@@ -191,6 +191,28 @@ def contacts_remove(name: str):
     memory.remove_contact(name)
     return {'status': 'removed'}
 
+# ---------- Saved places ----------
+
+@app.get('/places')
+def places_list(): return memory.places()
+
+@app.post('/places', status_code=201)
+async def places_save(name: str = Form('home', max_length=20), address: str = Form(..., min_length=3, max_length=200),
+                      lat: float | None = Form(None), lon: float | None = Form(None)):
+    """Look an address up on the map and remember it under a name such as home."""
+    try:
+        found = await navigation.geocode(address, lat, lon)
+    except Exception as error:
+        raise HTTPException(502, 'The map service could not be reached') from error
+    if found is None:
+        raise HTTPException(404, 'That address was not found on the map. Try a fuller address with the city.')
+    return memory.save_place(name, found['label'], found['lat'], found['lon'])
+
+@app.delete('/places/{name}')
+def places_remove(name: str):
+    memory.remove_place(name)
+    return {'status': 'removed'}
+
 # ---------- Pay by code ----------
 
 @app.get('/pay/qr.png')

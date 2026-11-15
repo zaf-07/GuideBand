@@ -62,6 +62,7 @@ class Memory:
             self._db.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, kind TEXT, text TEXT, created REAL)')
             self._db.execute('CREATE TABLE IF NOT EXISTS path (id INTEGER PRIMARY KEY, lat REAL, lon REAL, t REAL)')
             self._db.execute('CREATE TABLE IF NOT EXISTS contacts (key TEXT PRIMARY KEY, name TEXT, phone TEXT)')
+            self._db.execute('CREATE TABLE IF NOT EXISTS places (name TEXT PRIMARY KEY, label TEXT, lat REAL, lon REAL)')
         self.last_place = ''
 
     # ----- writing -----
@@ -118,6 +119,27 @@ class Memory:
     def remove_contact(self, name: str) -> None:
         with self._lock, self._db:
             self._db.execute('DELETE FROM contacts WHERE key = ?', (name.strip().lower(),))
+
+    # ----- saved places such as home (kept when memory is erased) -----
+
+    def save_place(self, name: str, label: str, lat: float, lon: float) -> dict:
+        with self._lock, self._db:
+            self._db.execute('INSERT OR REPLACE INTO places VALUES (?, ?, ?, ?)', (name.lower(), label, lat, lon))
+        return {'name': name.lower(), 'label': label, 'lat': lat, 'lon': lon}
+
+    def place(self, name: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute('SELECT name, label, lat, lon FROM places WHERE name = ?', (name.lower(),)).fetchone()
+        return {'name': row[0], 'label': row[1], 'lat': row[2], 'lon': row[3]} if row else None
+
+    def places(self) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute('SELECT name, label, lat, lon FROM places ORDER BY name').fetchall()
+        return [{'name': r[0], 'label': r[1], 'lat': r[2], 'lon': r[3]} for r in rows]
+
+    def remove_place(self, name: str) -> None:
+        with self._lock, self._db:
+            self._db.execute('DELETE FROM places WHERE name = ?', (name.lower(),))
 
     def contacts(self) -> list[dict]:
         with self._lock:

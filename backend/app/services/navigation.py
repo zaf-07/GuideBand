@@ -136,6 +136,20 @@ async def find_place(term: str, lat: float, lon: float) -> dict | None:
     return min(places, key=lambda place: place['distance_m']) if places else None
 
 
+async def geocode(text: str, lat: float | None = None, lon: float | None = None) -> dict | None:
+    """Coordinates for an address or place name, preferring results near the user. None when nothing matches."""
+    params = {'format': 'jsonv2', 'q': text, 'limit': 1}
+    if lat is not None and lon is not None:
+        r = 0.5  # prefer the user's own region, without excluding the rest of the world
+        params['viewbox'] = f'{lon - r},{lat + r},{lon + r},{lat - r}'
+    results = await _get(SEARCH_URL, params)
+    if not results:
+        return None
+    best = results[0]  # the map service's best match; the viewbox above already favours the user's region
+    label = ', '.join(part.strip() for part in best.get('display_name', text).split(',')[:3])
+    return {'label': label, 'lat': float(best['lat']), 'lon': float(best['lon'])}
+
+
 async def find_route(lat: float, lon: float, dest_lat: float, dest_lon: float) -> dict:
     data = await _get(ROUTE_URL.format(lon1=lon, lat1=lat, lon2=dest_lon, lat2=dest_lat),
                       {'steps': 'true', 'overview': 'false'})

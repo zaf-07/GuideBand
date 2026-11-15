@@ -30,7 +30,16 @@ RECALL = re.compile(
     r'|\bwhere (was|have) i\b|\bwhere did i go\b|\bwhat (did|have) i (ask|asked|say|said)\b'
 )
 WHERE = re.compile(r"\bwhere am i\b|\bwhat(?:'s| is) (around|near|nearby)( me)?\b|\bmy (current )?location\b|\bwhat street\b")
-MESSAGE = re.compile(r'^\W*(?:please )?(tell|text|message|whatsapp|send)\s+(?!me\b)|\bshare my location\b')
+MESSAGE = re.compile(
+    r'^\W*(?:please |can you |could you )*(tell|text|message|whatsapp|send|write)\s+(?:a (?:message|text|whatsapp) )?(?:to )?(?!me\b)'
+    r'|\bshare my location\b|\b(?:send|write) (?:a )?(?:whatsapp |text )?message to\b'
+)
+PLACE_NAMES = {'home': 'home', 'house': 'home', 'work': 'work', 'office': 'work', 'school': 'school', 'dorm': 'dorm'}
+PLACE_SET = re.compile(r'\bmy (home|house|work|office|school|dorm)(?: address)? is (.+?)[\s.!]*$')
+PLACE_GO = re.compile(
+    r'\b(?:take|get|guide|walk|bring|lead) me (?:to )?(?:my )?(home|house|work|office|school|dorm)\b'
+    r'|\b(?:directions?|route|way|go|going|head|navigate) (?:to )?(?:my )?(home|house|work|office|school|dorm)\b'
+)
 CALL = re.compile(r'\b(?:call|dial|phone)\s+(?:my\s+)?([a-z][a-z0-9 .-]{1,39})\b', re.IGNORECASE)
 OPEN_APP = re.compile(r'^\W*(?:open|launch|start)\s+(?:the\s+)?(whatsapp|messages|maps|facetime|calendar)\b', re.IGNORECASE)
 BRIDGE = re.compile(r'\bbridge\b')
@@ -70,6 +79,10 @@ def route(text: str, has_pending: bool = False) -> str:
         return 'nav_stop'
     if GO_BACK.search(value):
         return 'go_back'
+    if PLACE_SET.search(value):
+        return 'place_set'
+    if PLACE_GO.search(value):
+        return 'place_go'
     if WHERE.search(value):
         return 'where_am_i'
     if MESSAGE.search(value):
@@ -108,7 +121,8 @@ def message_body(text: str) -> str:
 
 class Assistant:
     def __init__(self, memory: Memory, orders: Orders, detector=None, navigator=None, place_name=None,
-                 read_frame=None, send_whatsapp=None, send_desktop=None) -> None:
+                 read_frame=None, send_whatsapp=None, send_desktop=None, geocode=None) -> None:
+        self.geocode = geocode or navigation.geocode
         self.send_whatsapp = send_whatsapp or messaging.send_whatsapp
         self.send_desktop = send_desktop or messaging.send_desktop
         self.navigator = navigator or navigation.Navigator()
@@ -202,6 +216,11 @@ class Assistant:
             reply.update(say=answer['text'], provider=answer['provider'])
         elif intent == 'where_am_i':
             await self._where(reply, image, mime, location)
+        elif intent == 'place_set':
+            reply['say'] = await self._save_place(text, location)
+        elif intent == 'place_go':
+            reply['say'] = await self._go_to_place(session, text, location)
+            reply['navigating'] = self.navigator.active(session) is not None
         elif intent == 'nav_stop':
             reply['say'] = 'Navigation stopped.' if self.navigator.stop(session) else 'No navigation is running.'
         elif intent in ('navigate', 'go_back'):
@@ -334,6 +353,32 @@ class Assistant:
         reply['say'] = ' '.join(parts)
         if location is not None:
             self.memory.add_note('place', reply['say'])
+
+    async def _save_place(self, text: str, location: tuple[float, float] | None) -> str:
+        """'My home address is 355 West San Fernando Street' -> remember where home is."""
+        match = PLACE_SET.search(text.lower().strip())
+        name, address = PLACE_NAMES[match.group(1)], text.strip()[match.start(2):].strip(' .!')
+        try:
+            found = await self.geocode(address, *(location or (None, None)))
+        except Exception:
+            return 'I could not reach the map service to look up that address. Please try again.'
+        if found is None:
+            return f'I could not find "{address}" on the map. Try a fuller address with the city.'
+        self.memory.save_place(name, found['label'], found['lat'], found['lon'])
+        return f'Saved. Your {name} is {found["label"]}. Say "take me {name}" for directions.'
+
+    async def _go_to_place(self, session: str, text: str, location: tuple[float, float] | None) -> str:
+        match = PLACE_GO.search(text.lower().strip())
+        name = PLACE_NAMES[match.group(1) or match.group(2)]
+        place = self.memory.place(name)
+        if place is None:
+            return f'I do not know your {name} address yet. Say: my {name} address is, followed by the address.'
+        if location is None:
+            return 'I need your location for directions. Please turn location on.'
+        try:
+            return await self.navigator.start_to(session, f'Your {name}', *location, place['lat'], place['lon'])
+        except navigation.NavigationError as error:
+            return str(error)
 
     async def _navigate(self, session: str, intent: str, text: str, location: tuple[float, float] | None) -> str:
         if location is None:

@@ -827,6 +827,30 @@
   // Location that was allowed before is switched on by itself, so directions work straight away.
   navigator.permissions?.query({ name: 'geolocation' }).then(permission => { if (permission.state === 'granted') enableLocation(); }).catch(() => {});
 
+  // ---------- Settings: home address ----------
+  async function loadHome() {
+    if (!online) return;
+    try {
+      const home = (await call('/places')).find(place => place.name === 'home');
+      el('homeCurrent').textContent = home ? 'Home: ' + home.label + '. Say “Take me home” for directions.' : 'Not set yet. Then you can say “Take me home”.';
+    } catch {}
+  }
+  el('homeForm').onsubmit = async e => {
+    e.preventDefault();
+    const address = el('homeInput').value.trim();
+    if (!address) return;
+    el('homeCurrent').textContent = 'Looking the address up…';
+    try {
+      const body = new FormData();
+      body.append('name', 'home');
+      body.append('address', address);
+      addLocation(body);
+      const saved = await call('/places', { method: 'POST', body });
+      el('homeInput').value = '';
+      el('homeCurrent').textContent = 'Home: ' + saved.label + '. Say “Take me home” for directions.';
+    } catch (error) { el('homeCurrent').textContent = error.message; }
+  };
+
   // ---------- Tabs ----------
   const tabs = [...document.querySelectorAll('#live .tab')];
   function selectTab(name) {
@@ -840,7 +864,7 @@
     el('askInput').placeholder = micPlaceholder();
     if (name === 'memory') loadMemory();
     if (name === 'family') loadContacts();
-    if (name === 'settings') refreshPermissions();
+    if (name === 'settings') { refreshPermissions(); loadHome(); }
     if (name === 'bridge') el('liveWarning').textContent = '';
     syncSigns();
     startMic(); // switching tabs never leaves the microphone off
