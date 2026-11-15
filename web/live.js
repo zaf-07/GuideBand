@@ -98,7 +98,7 @@
     const response = await fetch(api + '/speech', { method: 'POST', body });
     if (!response.ok) throw new Error('voice unavailable');
     const url = URL.createObjectURL(await response.blob());
-    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); };
+    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); if (bandMuted) { muteBand(false); bandMuted = false; } };
     player.onended = done;
     player.onerror = done;
     player.src = url;
@@ -110,15 +110,19 @@
     utterance.lang = 'en-US';
     utterance.rate = warning ? 1.08 : 1;
     utterance.onstart = () => { replySpeaking = !warning; };
-    utterance.onend = () => { lastSpeechEnd = Date.now(); replySpeaking = false; };
+    utterance.onend = () => { lastSpeechEnd = Date.now(); if (replySpeaking && bandMuted) { muteBand(false); bandMuted = false; } replySpeaking = false; };
     utterance.onerror = () => { replySpeaking = false; };
     speechSynthesis.speak(utterance);
   }
   const plain = text => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const recentlySpoken = [];
   /** True when the microphone just heard GuideBand's own voice coming out of the speakers. */
-  function isEcho(heard) {
-    const text = plain(heard), now = Date.now();
+  function isEcho(heard, source) {
+    // Only speech that arrives while the assistant is talking, or just after, can be its own voice.
+    // The band is muted while a reply plays, so for the band the window is short. Without this limit,
+    // repeating a phrase the assistant had just suggested ("take me home") was thrown away as an echo.
+    const text = plain(heard), now = Date.now(), tail = source === 'band' ? 1500 : 4000;
+    if (!isSpeaking() && now - lastSpeechEnd > tail) return false;
     return text.length >= 4 && recentlySpoken.some(item => now - item.at < 20000 && item.text.includes(text));
   }
   function speak(text, { warning = false, force = false } = {}) {
@@ -423,17 +427,19 @@
     if (!text) return;
     heardThrough = source === 'band' ? ' (through the Vexo band)' : '';
     const zoomWord = text.toLowerCase().match(/\bzoom (in|out|off|back)\b|\b(reset|no|stop) zoom\b/);
-    if (zoomWord && !isEcho(text)) {
+    if (zoomWord && !isEcho(text, source)) {
       heardNote(text);
       if (zoomWord[1] === 'in') { zoomStep(1); speak('Zoom ' + zoom + ' times.'); }
       else if (zoomWord[1] === 'out') { zoomStep(-1); speak(zoom === 1 ? 'Zoom off.' : 'Zoom ' + zoom + ' times.'); }
       else setZoom(1, true);
       return;
     }
+    if (isEcho(text, source)) return heardNote(text, 'ignored, that was my own voice');
+    // The browser's recogniser can deliver one sentence twice within a moment; the band never does.
+    // A sentence the user deliberately repeats must always get through.
     const key = plain(text);
-    if (key === handledText && Date.now() - handledAt < 6000) return; // the same sentence, delivered twice
+    if (source !== 'band' && key === handledText && Date.now() - handledAt < 2000) return;
     handledText = key; handledAt = Date.now();
-    if (isEcho(text)) return heardNote(text, 'ignored, that was my own voice');
     const wake = text.match(WAKE);
     const command = wake ? wake[1].trim() : '';
     if (activeTab === 'bridge') {

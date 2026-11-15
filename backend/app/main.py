@@ -363,7 +363,7 @@ def band_mute_set(on: bool = Form(...)):
     """The page calls this when the assistant starts (on) and stops (off) speaking."""
     global band_muted_until
     # The page repeats 'on' every second while it is really speaking; if it stops, the mute ends by itself.
-    band_muted_until = time.time() + (2.5 if on else 0.4)
+    band_muted_until = time.time() + (2.5 if on else 0.25)
     return {'muted': on}
 
 
