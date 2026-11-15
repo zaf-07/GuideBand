@@ -18,9 +18,11 @@ from .navigation import haversine
 
 RECALL_PROMPT = (
     'You are GuideBand, the memory of a blind or low-vision person, speaking aloud. '
-    'Answer the question using only the memory notes provided. '
-    'Say where the thing was and how long ago it was seen, in one or two short sentences. '
-    'If the notes do not contain the answer, say you have not seen it yet. Never guess.'
+    'Answer the question from the memory notes provided, in one or two short sentences. '
+    'Use whatever the notes say about the thing: what it was near, which side it was on, the street, and how long ago. '
+    'An approximate answer from the notes is better than none. '
+    'Notes that start with "I asked" are earlier requests made by the user: for questions about what they asked or said, list those. '
+    'Only if the notes say nothing at all about it, say you have not seen it yet. Never invent details.'
 )
 SNAPSHOT_PROMPT = (
     'Describe this scene for a personal memory log in at most three short sentences. '
@@ -172,10 +174,11 @@ class Memory:
             rows = self._db.execute('SELECT id, kind, text, created FROM notes ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
         return [{'id': r[0], 'kind': r[1], 'text': r[2], 'created': r[3]} for r in rows]
 
-    def context(self, now: float | None = None) -> str:
+    def context(self, now: float | None = None, include_requests: bool = True) -> str:
         """Everything remembered, as plain lines for the language model."""
         now = now or time.time()
-        lines = [f'- note, {age(now - n["created"])}: {n["text"]}' for n in self.notes()]
+        notes = [n for n in self.notes(60) if include_requests or n['kind'] != 'asked'][:30]
+        lines = [f'- note, {age(now - n["created"])}: {n["text"]}' for n in notes]
         lines += [f'- detector saw a {s["label"]} {s["position"]}, {age(now - s["last_seen"])}' for s in self.sightings()[:30]]
         return '\n'.join(lines)
 
@@ -193,7 +196,9 @@ class Memory:
         return 'I have not seen that yet.'
 
     async def recall(self, question: str) -> dict:
-        context = self.context()
+        # The log of past requests only helps when the question is about them.
+        about_requests = bool(re.search(r'(ask|asked|say|said|request)', question.lower()))
+        context = self.context(include_requests=about_requests)
         if context and llm.configured():
             try:
                 text = await llm.gemini(
