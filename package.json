@@ -24,7 +24,7 @@
     "appId": "ai.guideband.desktop",
     "productName": "GuideBand",
     "directories": { "output": "release" },
-    "files": ["desktop/**/*", "web/**/*", "package.json"],
+    "files": ["desktop/**/*", "web/**/*", "build/**/*", "package.json"],
     "mac": { "target": ["dmg", "zip"], "category": "public.app-category.lifestyle", "icon": "build/icon.icns" },
     "win": { "target": ["nsis", "portable"] },
     "linux": {
