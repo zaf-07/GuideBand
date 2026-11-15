@@ -8,7 +8,7 @@
   <meta name="description" content="GuideBand is a hands-free AI assistant for blind and low-vision people. It sees hazards, remembers what it saw, and acts for you — only after a spoken yes.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="landing.css?v=2">
-  <link rel="stylesheet" href="live.css?v=17">
+  <link rel="stylesheet" href="live.css?v=19">
   <title>GuideBand — The AI that sees, remembers and acts for you</title>
 </head>
 <body>
@@ -191,6 +191,15 @@
               <div class="row wrap">
                 <button class="btn btn-primary" type="button" id="camBtn">Turn camera on</button>
                 <button class="btn btn-glass glass" type="button" id="flipBtn">Flip camera</button>
+                <div class="zoom" role="group" aria-label="Camera zoom">
+                  <button class="btn btn-glass glass zoom-step" type="button" id="zoomOut" aria-label="Zoom out">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>
+                  </button>
+                  <span class="zoom-label" id="zoomLabel" role="status">1×</span>
+                  <button class="btn btn-glass glass zoom-step" type="button" id="zoomIn" aria-label="Zoom in">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -458,7 +467,7 @@
   </footer>
 
   <script src="landing.js"></script>
-  <script src="signs.js?v=12"></script>
-  <script src="live.js?v=18"></script>
+  <script src="signs.js?v=13"></script>
+  <script src="live.js?v=20"></script>
 </body>
 </html>

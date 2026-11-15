@@ -139,7 +139,10 @@ window.GuideSigns = (() => {
     // Same mapping as object-fit: cover on the video element.
     const scale = Math.max(w / video.videoWidth, h / video.videoHeight);
     const dx = (w - video.videoWidth * scale) / 2, dy = (h - video.videoHeight * scale) / 2;
-    const at = pt => [dx + pt.x * video.videoWidth * scale, dy + pt.y * video.videoHeight * scale];
+    // The camera picture may be zoomed around its centre; draw the hand at the same zoom.
+    const zoom = Number(canvas.dataset.zoom) || 1;
+    const at = pt => [w / 2 + (dx + pt.x * video.videoWidth * scale - w / 2) * zoom,
+      h / 2 + (dy + pt.y * video.videoHeight * scale - h / 2) * zoom];
     ctx.strokeStyle = '#d8ff70'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(...at(points[a])); ctx.lineTo(...at(points[b])); ctx.stroke(); }
     ctx.fillStyle = '#ffffff';

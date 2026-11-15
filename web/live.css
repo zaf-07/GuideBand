@@ -186,3 +186,10 @@
 .service-form { display: grid; gap: 6px; }
 .service-form label { font-size: 14px; font-weight: 600; color: var(--muted); }
 #demo { scroll-margin-top: 96px; }
+
+/* Camera zoom */
+.zoom { display: inline-flex; align-items: center; gap: 6px; }
+.zoom-step { min-height: 52px; width: 52px; padding: 0; }
+.zoom-step svg { width: 22px; height: 22px; stroke-width: 2.4; }
+.zoom-label { min-width: 46px; text-align: center; font-weight: 700; font-size: 16px; }
+.stage video { transition: transform .2s ease; }

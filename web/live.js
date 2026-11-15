@@ -10,6 +10,7 @@
   let api = (store.get('guideband_api') ?? (sameOrigin ? '' : 'http://localhost:8000')).replace(/\/$/, '');
   const session = Math.random().toString(36).slice(2, 12);
   let online = false, activeTab = 'assistant';
+  let bandCursor = -1, bandLive = false; // the Vexo band: declared early, the microphone code reads it
 
   el('apiInput').value = api || location.origin;
 
@@ -158,13 +159,36 @@
     try { await startCamera(); } catch (error) { cameraError(error); }
   };
 
+  // ---------- Zoom ----------
+  const ZOOM_STEPS = [1, 1.5, 2, 3, 4];
+  let zoom = 1;
+  function setZoom(value, announce) {
+    zoom = Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], Math.max(1, value));
+    video.style.transform = zoom === 1 ? '' : 'scale(' + zoom + ')';
+    overlay.dataset.zoom = String(zoom); // the sign reader draws the hand at the same zoom
+    el('zoomLabel').textContent = zoom + '×';
+    el('zoomOut').disabled = zoom === 1;
+    el('zoomIn').disabled = zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1];
+    if (announce) speak(zoom === 1 ? 'Zoom off.' : 'Zoom ' + zoom + ' times.');
+  }
+  const zoomStep = direction => {
+    const index = ZOOM_STEPS.indexOf(zoom);
+    setZoom(ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, index + direction))], false);
+  };
+  el('zoomIn').onclick = () => zoomStep(1);
+  el('zoomOut').onclick = () => zoomStep(-1);
+  setZoom(1, false);
+
   /** Current frame as a JPEG blob, or null when the camera is off. */
   function frame(maxWidth = 640) {
     if (!stream || !video.videoWidth) return Promise.resolve(null);
-    const scale = Math.min(1, maxWidth / video.videoWidth);
-    grab.width = Math.round(video.videoWidth * scale);
-    grab.height = Math.round(video.videoHeight * scale);
-    grab.getContext('2d').drawImage(video, 0, 0, grab.width, grab.height);
+    // With zoom, only the middle of the picture is sent — the same part that is shown.
+    const cropWidth = video.videoWidth / zoom, cropHeight = video.videoHeight / zoom;
+    const scale = Math.min(1, maxWidth / cropWidth);
+    grab.width = Math.round(cropWidth * scale);
+    grab.height = Math.round(cropHeight * scale);
+    grab.getContext('2d').drawImage(video, (video.videoWidth - cropWidth) / 2, (video.videoHeight - cropHeight) / 2,
+      cropWidth, cropHeight, 0, 0, grab.width, grab.height);
     return new Promise(resolve => grab.toBlob(resolve, 'image/jpeg', 0.72));
   }
 
@@ -361,6 +385,14 @@
     el('askInput').placeholder = micPlaceholder();
     if (!text) return;
     heardThrough = source === 'band' ? ' (through the Vexo band)' : '';
+    const zoomWord = text.toLowerCase().match(/\bzoom (in|out|off|back)\b|\b(reset|no|stop) zoom\b/);
+    if (zoomWord && !isEcho(text)) {
+      heardNote(text);
+      if (zoomWord[1] === 'in') { zoomStep(1); speak('Zoom ' + zoom + ' times.'); }
+      else if (zoomWord[1] === 'out') { zoomStep(-1); speak(zoom === 1 ? 'Zoom off.' : 'Zoom ' + zoom + ' times.'); }
+      else setZoom(1, true);
+      return;
+    }
     const key = plain(text);
     if (key === handledText && Date.now() - handledAt < 6000) return; // the same sentence, delivered twice
     handledText = key; handledAt = Date.now();
@@ -748,7 +780,6 @@
   // The service keeps one permanent connection to the band. Sentences heard through it arrive here
   // and are handled like any other speech; while the band is connected the laptop microphone rests,
   // so nothing is heard twice.
-  let bandCursor = -1, bandLive = false;
   function showBandLive(band) {
     const was = bandLive;
     bandLive = Boolean(band && band.connected);
