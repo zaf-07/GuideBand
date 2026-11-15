@@ -10,7 +10,7 @@ window.GuideSigns = (() => {
     [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
 
   const MIN_LETTER_CONFIDENCE = 0.62, HOLD_FRAMES = 6, REPEAT_MS = 1200, SPACE_MS = 1800;
-  const WINDOW = 8, WORD_VOTES = 6, WORD_REPEAT_MS = 3000;
+  const WINDOW = 10, WORD_VOTES = 7; // a sign must be seen in 7 of the last 10 frames, about half a second
 
   let detector = null, model = null, loading = null;
   let running = false, video = null, canvas = null, handlers = {}, mode = 'words';
@@ -18,7 +18,7 @@ window.GuideSigns = (() => {
   // letters
   let candidate = '', candidateFrames = 0, lastLetter = '', lastLetterAt = 0, lastHandAt = 0, spelled = '', wordStart = 0;
   // words
-  let votes = [], lastWord = '', lastWordAt = 0;
+  let votes = [], lastWord = '', lastWordAt = 0, heldWord = '';
 
   function load() {
     loading ||= (async () => {
@@ -55,32 +55,64 @@ window.GuideSigns = (() => {
     return { label: model.labels[best], confidence: exps[best] / total };
   }
 
-  // ----- words: whole-hand shapes from which fingers are extended -----
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  // ----- words: whole-hand signs, read from how straight each finger is -----
+  // A finger counts as up or folded by the bend at its joints, not by where it sits in the picture,
+  // so the hand can be tilted or turned and the reading stays the same.
+  const sub = (a, b) => [a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0)];
+  const len = v => Math.hypot(v[0], v[1], v[2]) || 1e-6;
+  const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const dist = (a, b) => len(sub(a, b));
+  /** 1 = perfectly straight, 0 = bent at a right angle, negative = folded back. */
+  function straightness(p, base, middle, tip) {
+    const first = sub(p[middle], p[base]), second = sub(p[tip], p[middle]);
+    return dot(first, second) / (len(first) * len(second));
+  }
   function handShape(p) {
-    const size = dist(p[0], p[9]);
-    const up = (tip, pip) => dist(p[tip], p[0]) > dist(p[pip], p[0]) * 1.15;
-    const thumb = dist(p[4], p[17]) > dist(p[2], p[17]) * 1.2 && dist(p[4], p[5]) > size * 0.45;
-    return { thumb, index: up(8, 6), middle: up(12, 10), ring: up(16, 14), pinky: up(20, 18), size };
+    const size = dist(p[0], p[9]); // wrist to the middle knuckle: the hand's own ruler
+    const finger = (mcp, pip, dip, tip) => {
+      const bend = Math.min(straightness(p, mcp, pip, dip), straightness(p, pip, dip, tip));
+      const reach = dist(p[tip], p[0]) / dist(p[mcp], p[0]); // a folded finger's tip comes back to the palm
+      if (bend > 0.75 && reach > 1.45) return 'up';
+      if (bend < 0.35 || reach < 1.2) return 'down';
+      return 'half';
+    };
+    const thumbStraight = straightness(p, 2, 3, 4);
+    const thumbAway = dist(p[4], p[5]) / size;   // from the index knuckle
+    const thumbOut = dist(p[4], p[17]) / dist(p[2], p[17]);
+    let thumb = 'half';
+    if (thumbStraight > 0.7 && thumbAway > 0.6 && thumbOut > 1.15) thumb = 'up';
+    else if (thumbAway < 0.45 || thumbOut < 1.0) thumb = 'down';
+    const direction = sub(p[4], p[2]);
+    return {
+      size, thumb,
+      index: finger(5, 6, 7, 8), middle: finger(9, 10, 11, 12), ring: finger(13, 14, 15, 16), pinky: finger(17, 18, 19, 20),
+      thumbUpward: -direction[1] / len(direction),            // 1 = pointing to the top of the picture
+      pinch: dist(p[4], p[8]) / size,                          // thumb tip to index tip
+    };
   }
   function readWord(p) {
     const s = handShape(p);
-    const fingers = [s.index, s.middle, s.ring, s.pinky].filter(Boolean).length;
+    const up = name => s[name] === 'up', down = name => s[name] === 'down';
+    const fingersUp = ['index', 'middle', 'ring', 'pinky'].filter(up).length;
+    const fingersDown = ['index', 'middle', 'ring', 'pinky'].filter(down).length;
+
     // Thumb and index fingertips touching, the other three fingers up.
-    if (dist(p[4], p[8]) < s.size * 0.3 && s.middle && s.ring && s.pinky) return 'OK';
-    if (s.thumb && fingers === 4) return 'Hello';
-    if (!s.thumb && fingers === 4) return 'Four';
-    if (s.thumb && s.index && s.pinky && !s.middle && !s.ring) return 'I love you';
-    if (s.thumb && s.pinky && !s.index && !s.middle && !s.ring) return 'Call me';
-    if (s.thumb && s.index && !s.middle && !s.ring && !s.pinky) return 'Later';
-    if (s.index && s.middle && s.ring && !s.pinky) return 'Water';
-    if (s.index && s.middle && !s.ring && !s.pinky) return 'Peace';
-    if (s.index && !s.thumb && !s.middle && !s.ring && !s.pinky) return 'You';
-    if (s.pinky && !s.thumb && !s.index && !s.middle && !s.ring) return 'Me';
-    if (s.thumb && fingers === 0) {
-      if (p[4].y < p[2].y - s.size * 0.35) return 'Yes';
-      if (p[4].y > p[2].y + s.size * 0.35) return 'No';
+    if (s.pinch < 0.3 && up('middle') && up('ring') && up('pinky') && !up('index')) return 'OK';
+    // "I love you": thumb, index and little finger up, middle and ring folded.
+    if (up('index') && up('pinky') && down('middle') && down('ring') && s.thumb !== 'down') return 'I love you';
+    // A fist with only the thumb out: up is yes, down is no.
+    if (fingersDown === 4 && s.thumb === 'up') {
+      if (s.thumbUpward > 0.55) return 'Yes';
+      if (s.thumbUpward < -0.55) return 'No';
+      return '';
     }
+    if (fingersUp === 4 && s.thumb === 'up') return 'Hello';
+    // Four fingers up with the thumb folded across the palm: the first move of the Signal for Help.
+    if (fingersUp === 4 && s.thumb === 'down') return 'Help';
+    if (up('index') && up('middle') && up('ring') && down('pinky')) return 'Water';
+    if (up('index') && up('middle') && down('ring') && down('pinky')) return 'Peace';
+    if (up('pinky') && s.thumb === 'up' && down('index') && down('middle') && down('ring')) return 'Call me';
+    if (up('index') && fingersUp === 1 && s.thumb !== 'up') return 'You';
     return '';
   }
 
@@ -122,9 +154,14 @@ window.GuideSigns = (() => {
     for (const vote of votes) if (vote) counts[vote] = (counts[vote] || 0) + 1;
     const [word, count] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0] || ['', 0];
     const confidence = count / WINDOW;
-    if (word && count >= WORD_VOTES && (word !== lastWord || now - lastWordAt > WORD_REPEAT_MS)) {
-      lastWord = word; lastWordAt = now;
-      spelled = (spelled + ' ' + word).trim();
+    // A sign that is simply being held is said once. It may be said again only after the hand
+    // has gone away or has shown something else for a moment.
+    const empty = votes.filter(vote => !vote).length;
+    if (!word || (word !== lastWord && count < 3 && empty >= WINDOW - 3)) heldWord = '';
+    if (empty === WINDOW) { heldWord = ''; lastWord = ''; }
+    if (word && count >= WORD_VOTES && word !== heldWord) {
+      heldWord = word; lastWord = word; lastWordAt = now;
+      spelled = (spelled + ' ' + word).trim().split(' ').slice(-12).join(' ');
       handlers.onWord?.(word, confidence);
     }
     emit(word, confidence, Math.min(1, count / WORD_VOTES));
@@ -176,7 +213,8 @@ window.GuideSigns = (() => {
       running = false;
       canvas?.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     },
-    setMode(next) { mode = next; votes = []; candidate = ''; candidateFrames = 0; },
-    clear() { spelled = ''; wordStart = 0; lastLetter = ''; lastWord = ''; emit('', 0, 0); },
+    setMode(next) { mode = next; votes = []; heldWord = ''; candidate = ''; candidateFrames = 0; },
+    clear() { spelled = ''; wordStart = 0; lastLetter = ''; lastWord = ''; heldWord = ''; emit('', 0, 0); },
+    readWord, // exposed so the rules can be checked without a camera
   };
 })();
