@@ -354,6 +354,7 @@
   }
   const micPlaceholder = () => el('wakeToggle').checked ? 'Say “Guide, …” or type here' : 'Just talk, or type here';
   function startMic() {
+    if (el('micSource').value) return void startDeviceMic(); // a chosen microphone, e.g. the bracelet
     if (!Recognition || recognizer || micBlocked || !el('micToggle').checked) return;
     const r = new Recognition();
     r.lang = 'en-US'; r.continuous = true; r.interimResults = true;
@@ -380,11 +381,96 @@
     } catch { recognizer = null; }
   }
   function stopMic() {
+    stopDeviceMic();
     const r = recognizer;
     recognizer = null;
     if (r) { r.onend = null; r.abort(); }
     micState('Microphone off', 'off');
   }
+  // ----- A chosen microphone (the Vexo bracelet, a headset…) -----
+  // The browser's own speech recognition can only use the default microphone, so audio from a
+  // chosen one is cut into sentences here by loudness and transcribed by the service (Deepgram).
+  let capture = null;
+  function stopDeviceMic() {
+    if (!capture) return;
+    clearInterval(capture.timer);
+    capture.stream.getTracks().forEach(track => track.stop());
+    capture.context.close();
+    capture = null;
+  }
+  async function sendClip(blob) {
+    try {
+      const body = new FormData();
+      body.append('audio', blob, 'speech.webm');
+      const result = await call('/speech/transcribe', { method: 'POST', body });
+      if (result.text) handleSpeech(result.text); else micState('Listening through ' + sourceName(), 'on');
+    } catch (error) { micState('Could not transcribe: ' + error.message, 'off'); }
+  }
+  const sourceName = () => el('micSource').selectedOptions[0]?.textContent || 'the chosen microphone';
+  async function startDeviceMic() {
+    if (capture || !el('micToggle').checked) return;
+    const deviceId = el('micSource').value;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true } });
+    } catch { return micState('Could not open that microphone', 'off'); }
+    if (capture || el('micSource').value !== deviceId) return stream.getTracks().forEach(track => track.stop());
+    const context = new AudioContext(), analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    let recorder = null, chunks = [], startedAt = 0, lastLoudAt = 0, floor = 0.01;
+    capture = { stream, context, timer: setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const value of samples) sum += value * value;
+      const level = Math.sqrt(sum / samples.length), now = performance.now();
+      const loud = level > Math.max(0.015, floor * 3) && !isSpeaking();
+      if (!recorder) floor = floor * 0.97 + level * 0.03; // follow the room noise while nobody talks
+      if (loud) {
+        lastLoudAt = now;
+        if (!recorder) {
+          chunks = []; startedAt = now;
+          recorder = new MediaRecorder(stream);
+          recorder.ondataavailable = event => chunks.push(event.data);
+          recorder.start();
+          micState('Hearing you through ' + sourceName() + '…', 'on');
+        }
+      } else if (recorder && (now - lastLoudAt > 900 || now - startedAt > 15000)) {
+        const finished = recorder, spoke = lastLoudAt - startedAt;
+        recorder = null;
+        finished.onstop = () => { if (spoke > 350) sendClip(new Blob(chunks, { type: finished.mimeType })); };
+        finished.stop();
+      }
+    }, 50) };
+    micState('Listening through ' + sourceName(), 'on');
+  }
+  async function listMicrophones() {
+    try {
+      // Device names are only shown after the microphone permission has been given once.
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach(track => track.stop());
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications');
+      const select = el('micSource'), current = select.value;
+      select.length = 1;
+      for (const device of devices) select.add(new Option(device.label || 'Microphone', device.deviceId));
+      const bracelet = devices.find(d => /vexo|hack/i.test(d.label));
+      select.value = bracelet ? bracelet.deviceId : (devices.some(d => d.deviceId === current) ? current : '');
+      if (bracelet) addMessage('guide', 'I found the bracelet microphone (' + bracelet.label + ') and I am listening through it.');
+      el('micSource').onchange();
+    } catch { micState('Microphone permission is needed to list microphones', 'off'); }
+  }
+  el('micRefresh').onclick = listMicrophones;
+  el('micSource').onchange = () => {
+    // Switch between the browser's recognition and the chosen microphone.
+    const r = recognizer;
+    recognizer = null;
+    if (r) { r.onend = null; r.abort(); }
+    stopDeviceMic();
+    micState('Microphone off', 'off');
+    if (el('micToggle').checked) startMic();
+  };
+
   if (!Recognition) {
     el('micToggle').checked = false;
     el('micToggle').disabled = true;

@@ -75,7 +75,7 @@ def system_status():
                      'menu': [{'item': name, 'price': money(cents)} for name, cents in CATALOGUE.values()]},
         'memory': {'notes': len(memory.notes(1000)), 'objects': len(memory.sightings()), 'path_points': len(memory.path())},
         'navigation': {'maps': 'openstreetmap'},
-        'speech': {'voice': 'elevenlabs' if speech.configured() else 'browser'},
+        'speech': {'voice': 'elevenlabs' if speech.configured() else 'browser', 'transcription': speech.transcriber()},
         'messages': {'whatsapp': 'direct' if messaging.configured() else ('desktop_send' if messaging.desktop_enabled() else 'opens_whatsapp')},
     }
 
@@ -213,13 +213,14 @@ async def speech_out(text: str = Form(..., min_length=1, max_length=speech.MAX_T
 @app.post('/speech/transcribe')
 async def speech_in(audio: UploadFile = File(...)):
     """A short audio clip in, text out. For microphones the browser cannot transcribe, like the bracelet."""
-    if not speech.configured():
+    if speech.transcriber() is None:
         raise HTTPException(503, 'No transcription service is configured')
     body = await audio.read(10 * 1024 * 1024 + 1)
     if len(body) > 10 * 1024 * 1024:
         raise HTTPException(413, 'Audio clip is too large')
     try:
-        return {'text': await speech.transcribe(body, audio.content_type or 'application/octet-stream')}
+        mime = (audio.content_type or 'application/octet-stream').split(';')[0]
+        return {'text': await speech.transcribe(body, mime)}
     except speech.SpeechError as error:
         raise HTTPException(502, str(error)) from error
 

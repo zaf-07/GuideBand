@@ -156,3 +156,9 @@
 .facing-open .spell { gap: 3vh; }
 .facing-open .spell-line { gap: 1vw 2.5vw; }
 .facing-open .spell-label { min-width: 16vw; color: #fff; font-size: clamp(34px, 5vw, 90px); }
+
+/* Microphone source (bracelet or another microphone) */
+.mic-source { display: grid; gap: 6px; padding-left: 34px; font-size: 14.5px; }
+.mic-source label { font-weight: 600; color: var(--muted); }
+.mic-source select { min-height: 42px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--glass-border); background: var(--glass-strong); color: var(--ink); font: 500 15px/1 var(--font); max-width: 100%; }
+.mic-source .link-inline { justify-self: start; }
