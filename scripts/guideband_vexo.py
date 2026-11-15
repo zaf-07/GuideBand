@@ -140,7 +140,7 @@ def parse_args() -> argparse.Namespace:
         "--transport", choices=("ble", "serial", "sim"), default="ble"
     )
     parser.add_argument("--seconds", type=float, default=8)
-    parser.add_argument("--language", default="en")
+    parser.add_argument("--language", default="multi")
     return parser.parse_args()
 
 

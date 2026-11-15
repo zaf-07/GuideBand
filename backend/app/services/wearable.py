@@ -142,7 +142,7 @@ async def refresh_band_state(timeout: float = 6.0) -> dict:
     return _live_state
 
 
-async def listen_band(seconds: float = 6.0, language: str = 'en') -> str:
+async def listen_band(seconds: float = 8.0, language: str = 'multi') -> str:
     """Capture speech through Vexo band via BLE and Deepgram Nova-3."""
     script = ROOT / 'scripts' / 'guideband_vexo.py'
     if not script.is_file():

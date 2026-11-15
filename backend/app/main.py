@@ -265,17 +265,17 @@ async def post_wearable_refresh():
 @app.post('/wearable/listen')
 async def post_wearable_listen(request: Request):
     content_type = request.headers.get('content-type', '')
-    seconds = 6.0
-    language = 'en'
+    seconds = 8.0
+    language = 'multi'
     image_bytes = None
     mime = 'image/jpeg'
     if 'multipart/form-data' in content_type:
         form = await request.form()
         try:
-            seconds = float(form.get('seconds', 6.0))
+            seconds = float(form.get('seconds', 8.0))
         except (ValueError, TypeError):
-            seconds = 6.0
-        language = str(form.get('language', 'en'))
+            seconds = 8.0
+        language = str(form.get('language', 'multi'))
         upload = form.get('image')
         if hasattr(upload, 'read'):
             raw = await upload.read(MAX_IMAGE_BYTES + 1)

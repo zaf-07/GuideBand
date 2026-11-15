@@ -90,7 +90,7 @@
 
   // --- Vexo Band Voice Listening (BLE -> Deepgram Nova-3 -> Assistant) ---
   let isListeningBand = false;
-  async function listenThroughBand(seconds = 6) {
+  async function listenThroughBand(seconds = 8) {
     if (isListeningBand) return;
     isListeningBand = true;
 
@@ -100,19 +100,27 @@
     const heardEl = $('#heardText');
     const replyEl = $('#replyText');
 
+    let countdown = seconds;
     if (btn) {
       btn.classList.add('listening');
-      $('#bandBtnText').textContent = 'Listening…';
+      $('#bandBtnText').textContent = `Listening (${countdown}s)…`;
     }
+    const countTimer = setInterval(() => {
+      countdown--;
+      if (countdown > 0 && btn) {
+        $('#bandBtnText').textContent = `Listening (${countdown}s)…`;
+      }
+    }, 1000);
+
     if (orb) orb.classList.add('listening');
-    if (stateLabel) stateLabel.textContent = 'Listening to Vexo-HACK-20 over Bluetooth (Opus)…';
-    if (heardEl) heardEl.textContent = 'Streaming audio to Deepgram Nova-3…';
+    if (stateLabel) stateLabel.textContent = '🔵 Blue light ON — speak now into your Vexo wristband!';
+    if (heardEl) heardEl.textContent = 'Recording wristband audio (Deepgram Nova-3)…';
 
     try {
       const frameBlob = await getCameraFrameBlob();
       const body = new FormData();
       body.append('seconds', String(seconds));
-      body.append('language', 'en');
+      body.append('language', 'multi');
       if (frameBlob) {
         body.append('image', frameBlob, 'frame.jpg');
       }
@@ -121,6 +129,7 @@
         method: 'POST',
         body
       });
+      clearInterval(countTimer);
       if (res.ok) {
         const data = await res.json();
         if (data.ok && data.text) {
@@ -129,16 +138,18 @@
           speak(data.say);
         } else {
           heardEl.textContent = 'No speech detected on band.';
-          replyEl.textContent = data.say || 'Try speaking closer to your wrist or hold to talk.';
+          replyEl.textContent = data.say || 'Double-tap the band to wake its blue light, then speak close to the mic.';
         }
       } else {
         heardEl.textContent = 'Could not stream band audio.';
-        replyEl.textContent = 'Check that the band is powered on and near your Mac.';
+        replyEl.textContent = 'Check that the band is powered on and double-tapped.';
       }
     } catch (err) {
+      clearInterval(countTimer);
       heardEl.textContent = 'Connection error with GuideBand backend.';
       replyEl.textContent = String(err);
     } finally {
+      clearInterval(countTimer);
       isListeningBand = false;
       if (btn) {
         btn.classList.remove('listening');
@@ -150,14 +161,14 @@
   }
 
   const bandBtn = $('#bandListenBtn');
-  if (bandBtn) bandBtn.onclick = () => listenThroughBand(6);
+  if (bandBtn) bandBtn.onclick = () => listenThroughBand(8);
 
   // --- Talk Orb: Band BLE or Browser Mic fallback ---
   const orb = $('#talkOrb');
   if (orb) {
     orb.onclick = () => {
       if (bandConnected) {
-        listenThroughBand(6);
+        listenThroughBand(8);
       } else {
         browserListen();
       }

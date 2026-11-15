@@ -476,28 +476,37 @@
   if (el('webBandListenBtn')) {
     el('webBandListenBtn').onclick = async () => {
       const btn = el('webBandListenBtn');
-      btn.textContent = 'Listening (Opus)…';
+      btn.textContent = 'Listening (8s)…';
       btn.disabled = true;
-      micState('Listening to Vexo-HACK-20 over BLE…', 'on');
+      micState('🔵 Wristband recording: speak into the band now!', 'on');
+      let countdown = 8;
+      const countTimer = setInterval(() => {
+        countdown--;
+        if (countdown > 0) btn.textContent = `Listening (${countdown}s)…`;
+      }, 1000);
       try {
         const imageBlob = await frame(640);
         const body = new FormData();
-        body.append('seconds', '6');
-        body.append('language', 'en');
+        body.append('seconds', '8');
+        body.append('language', 'multi');
         if (imageBlob) body.append('image', imageBlob, 'frame.jpg');
 
         const response = await fetch(api + '/wearable/listen', { method: 'POST', body });
         const res = await response.json();
+        clearInterval(countTimer);
+        btn.textContent = 'Processing…';
         if (res.ok && res.text) {
           addMessage('user', '“' + res.text + '” (from wristband)');
           addMessage('guide', res.say);
           speak(res.say);
         } else {
-          addMessage('guide', res.say || 'No speech heard from wristband.');
+          addMessage('guide', res.say || 'No speech heard from wristband. If it was idle, double-tap the band to wake its blue light.');
         }
       } catch (err) {
+        clearInterval(countTimer);
         addMessage('guide', 'Error communicating with wristband: ' + err.message);
       } finally {
+        clearInterval(countTimer);
         btn.textContent = '🎤 Listen on Band';
         btn.disabled = false;
         micState('Ready', 'on');
