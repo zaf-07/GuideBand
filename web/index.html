@@ -8,7 +8,7 @@
   <meta name="description" content="GuideBand is a hands-free AI assistant for blind and low-vision people. It sees hazards, remembers what it saw, and acts for you — only after a spoken yes.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="landing.css">
-  <link rel="stylesheet" href="live.css?v=12">
+  <link rel="stylesheet" href="live.css?v=13">
   <title>GuideBand — The AI that sees, remembers and acts for you</title>
 </head>
 <body>
@@ -198,6 +198,13 @@
                 <button class="btn btn-glass glass" type="button" id="flipBtn">Flip camera</button>
               </div>
               <label class="toggle"><input type="checkbox" id="micToggle" checked><span>Microphone always on</span></label>
+              <div class="mic-source">
+                <label for="micSource">Listen through</label>
+                <select id="micSource">
+                  <option value="">This device (browser speech)</option>
+                </select>
+                <button class="link-inline" type="button" id="micRefresh">Find bracelet or other microphones</button>
+              </div>
               <label class="toggle"><input type="checkbox" id="wakeToggle"><span>Only act when I say “Guide” first (for noisy rooms)</span></label>
               <label class="toggle"><input type="checkbox" id="hazardToggle" checked><span>Speak hazard warnings</span></label>
               <label class="toggle"><input type="checkbox" id="voiceToggle" checked><span>Speak replies</span></label>
@@ -404,6 +411,6 @@
 
   <script src="landing.js"></script>
   <script src="signs.js?v=12"></script>
-  <script src="live.js?v=12"></script>
+  <script src="live.js?v=13"></script>
 </body>
 </html>

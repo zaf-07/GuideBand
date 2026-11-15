@@ -38,6 +38,11 @@ NAV = re.compile(
 )
 NAV_STOP = re.compile(r'\b(stop|cancel|end) (the )?(navigation|directions|route|guiding)\b')
 GO_BACK = re.compile(r'\b(take|guide|walk|lead|bring) me back\b|\bway back\b|\bgo back to (the )?start\b')
+READ = re.compile(r'read|what does (it|that|this|the) .*say|what is written')
+READ_QUESTION = (
+    'Read aloud every piece of text you can see in this image, word for word, starting with the largest. '
+    'Say only the text itself. If there is no readable text, say that you cannot see any text.'
+)
 HELP = re.compile(r'\bwhat can you do\b|^\W*help\b')
 
 HELP_TEXT = (
@@ -291,7 +296,11 @@ class Assistant:
             note = await self.memory.snapshot(image, mime, vision.local_description(detections), place)
             reply.update(say=f'I will remember this. {note["text"]}', provider=note['provider'])
             return
-        answer = await vision.describe(image, mime, text, detections)
+        if READ.search(text.lower()):
+            # Reading is a different job from describing: ask for the words only, with no object hints.
+            answer = await vision.describe(image, mime, READ_QUESTION, [])
+        else:
+            answer = await vision.describe(image, mime, text, detections)
         reply.update(say=answer['text'], provider=answer['provider'])
         if answer['provider'] != 'local':
             self.memory.add_note('seen', f'Answer to "{text}": {answer["text"]}', place=place)

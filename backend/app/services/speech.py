@@ -130,11 +130,49 @@ async def _synthesize_elevenlabs(text: str) -> bytes:
     return response.content
 
 
+def transcriber() -> str | None:
+    """Which service turns audio into text: Deepgram when set, otherwise ElevenLabs."""
+    if os.getenv('DEEPGRAM_API_KEY'):
+        return 'deepgram'
+    return 'elevenlabs' if configured() else None
+
+
+async def _deepgram(audio: bytes, mime: str) -> str:
+    import httpx
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=4.0)) as client:
+        response = await client.post(
+            'https://api.deepgram.com/v1/listen',
+            params={'model': os.getenv('DEEPGRAM_MODEL', 'nova-3'), 'smart_format': 'true', 'language': 'en'},
+            headers={'Authorization': f"Token {os.environ['DEEPGRAM_API_KEY']}", 'Content-Type': mime},
+            content=audio,
+        )
+        response.raise_for_status()
+    return response.json()['results']['channels'][0]['alternatives'][0]['transcript'].strip()
+
+
+async def _elevenlabs(audio: bytes, mime: str) -> str:
+    import httpx
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=4.0)) as client:
+        response = await client.post(
+            f'{API}/speech-to-text',
+            headers=_headers(),
+            data={'model_id': os.getenv('ELEVENLABS_STT_MODEL', 'scribe_v1')},
+            files={'file': ('speech', audio, mime)},
+        )
+        response.raise_for_status()
+    return (response.json().get('text') or '').strip()
+
+
+async def transcribe(audio: bytes, mime: str) -> str:
+    """Short audio clip in, text out. The clip is not stored here."""
 async def transcribe(audio: bytes, mime: str) -> str:
     """Short audio clip in, text out. The clip is not stored here."""
     deepgram_key = os.getenv('DEEPGRAM_API_KEY')
     if deepgram_key:
-        return await _transcribe_deepgram(audio, mime, deepgram_key)
+        try:
+            return await _transcribe_deepgram(audio, mime, deepgram_key)
+        except Exception:
+            pass
     if os.getenv('ELEVENLABS_API_KEY'):
         return await _transcribe_elevenlabs(audio, mime)
     raise SpeechError('No speech transcription service configured')
