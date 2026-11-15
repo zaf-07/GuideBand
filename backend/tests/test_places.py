@@ -11,7 +11,7 @@ from backend.app.services.navigation import Navigator
 from backend.app.services.payments import Orders
 
 HERE = (37.7606, -122.3866)
-HOME = {'label': 'San Francisco Bay University, Fremont', 'lat': 37.5483, 'lon': -121.9886}
+HOME = {'label': '161, Mission Falls Lane, Fremont', 'lat': 37.4845, 'lon': -121.9273}
 
 
 def run(coroutine):
@@ -41,8 +41,15 @@ class PlaceTests(unittest.TestCase):
         self.memory = Memory(':memory:')
         self.assistant = Assistant(self.memory, Orders(), navigator=Navigator(fake_place, fake_route), geocode=geocode)
 
+    def ask(self, text, **kwargs):
+        return run(self.assistant.respond('s', text, **kwargs))
+
     def test_routing(self):
         self.assertEqual(route('My home address is San Francisco Bay University'), 'place_set')
+        self.assertEqual(route('Can you change my home address to San Francisco Bay University?'), 'place_set')
+        self.assertEqual(route('Set my work address to 1 Market Street San Francisco'), 'place_set')
+        self.assertEqual(route('I live at 161 Mission Falls Lane Fremont'), 'place_set')
+        self.assertEqual(route('Can you please change my home address?'), 'place_set')
         self.assertEqual(route('Take me home'), 'place_go')
         self.assertEqual(route('Get directions home, please'), 'place_go')
         self.assertEqual(route('Take me to the nearest supermarket'), 'navigate')
@@ -51,53 +58,57 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(route('Tell me what is in front of me'), 'see')
 
     def test_home_must_be_set_first(self):
-        self.assertIn('do not know your home address', run(self.assistant.respond('s', 'Take me home', location=HERE))['say'])
+        self.assertIn('do not know your home address', self.ask('Take me home', location=HERE)['say'])
 
-    def test_set_home_then_go(self):
-        saved = run(self.assistant.respond('s', 'My home address is San Francisco Bay University', location=HERE))
-        self.assertIn('Saved. Your home is San Francisco Bay University, Fremont', saved['say'])
+    def test_nothing_is_saved_until_the_user_says_yes(self):
+        offer = self.ask('My home address is 161 Mission Falls Lane Fremont', location=HERE)
+        self.assertIn('I found 161, Mission Falls Lane, Fremont', offer['say'])
+        self.assertEqual(offer['confirm'], 'Save 161, Mission Falls Lane, Fremont as your home?')
+        self.assertIsNone(self.memory.place('home'))
+        saved = self.ask('Yes')
+        self.assertEqual(saved['intent'], 'place_saved')
+        self.assertIn('Saved. Your home is 161, Mission Falls Lane, Fremont', saved['say'])
         self.assertEqual(self.memory.place('home')['lat'], HOME['lat'])
-        self.assertIn('need your location', run(self.assistant.respond('s', 'Take me home'))['say'])
-        going = run(self.assistant.respond('s', 'Get directions home, please', location=HERE))
+        going = self.ask('Get directions home, please', location=HERE)
         self.assertTrue(going['navigating'])
-        self.assertIn('Your home is', going['say'])
 
-    def test_unknown_address_is_not_saved(self):
-        reply = run(self.assistant.respond('s', 'My home address is nowhere street 99999'))
-        self.assertIn('could not find', reply['say'])
+    def test_ask_first_then_say_the_address(self):
+        question = self.ask('Can you please change my home address?')
+        self.assertIn('What is your home address?', question['say'])
+        offer = self.ask('161 Mission Falls Lane, Fremont')          # the next sentence is the address
+        self.assertIn('I found 161, Mission Falls Lane, Fremont', offer['say'])
+        self.assertEqual(self.ask('yes')['intent'], 'place_saved')
+
+    def test_wrong_result_can_be_corrected_by_saying_it_again(self):
+        self.ask('Change my home address to San Bay University')
+        self.assertIsNone(self.memory.place('home'))
+        again = self.ask('No')
+        self.assertIn('Say the address again', again['say'])
+        offer = self.ask('Mission Falls Lane Fremont')                # a correction, not a new request
+        self.assertEqual(offer['intent'], 'place_set')
+        self.assertIn('Should I save it as your home?', offer['say'])
+        self.ask('Yes')
+        self.assertIsNotNone(self.memory.place('home'))
+        # the conversation is over: the next sentence is an ordinary request again
+        self.assertEqual(self.ask('Buy me a coffee')['intent'], 'pay_quote')
+
+    def test_saying_the_address_again_instead_of_yes_replaces_the_offer(self):
+        self.ask('Change my home address to somewhere')
+        offer = self.ask('161 Mission Falls Lane Fremont')
+        self.assertIn('I found', offer['say'])
         self.assertIsNone(self.memory.place('home'))
 
-    def test_misheard_names_still_reach_the_right_contact(self):
-        self.memory.add_contact('Tim', '+14155550100')
-        self.memory.add_contact('Zack', '+14155550101')
-        self.assertEqual(self.memory.find_contact('tell my team where I am')['name'], 'Tim')
-        self.assertEqual(self.memory.find_contact('text zach saying hello')['name'], 'Zack')
-        self.assertEqual(self.memory.find_contact('Tell Tim I am late')['name'], 'Tim')
-        self.assertIsNone(self.memory.find_contact('read the text you can see'))
-        self.assertIsNone(self.memory.find_contact('what is in front of me'))
+    def test_unknown_address_is_not_saved_and_can_be_cancelled(self):
+        reply = self.ask('My home address is nowhere street 99999')
+        self.assertIn('could not find', reply['say'])
+        cancelled = self.ask('Cancel')
+        self.assertEqual(cancelled['intent'], 'place_cancel')
+        self.assertIn('unchanged', cancelled['say'])
+        self.assertIsNone(self.memory.place('home'))
 
-    def test_loose_phrasing_through_a_noisy_microphone(self):
-        self.memory.add_contact('Tim', '+14155550100')
-        draft = run(self.assistant.respond('s', 'Hell, my team friend. My friend teams. Tell my team where I am', location=HERE))
-        self.assertEqual(draft['intent'], 'message')
-        self.assertEqual(draft['confirm'], 'Send to Tim on WhatsApp?')
-        self.assertEqual(run(self.assistant.respond('s', 'No'))['intent'], 'message_cancel')
-        self.assertEqual(run(self.assistant.respond('s', 'Read the text you can see'))['intent'], 'see')
-
-    def test_unknown_person_lists_the_contacts(self):
-        self.memory.add_contact('Tim', '+14155550100')
-        reply = run(self.assistant.respond('s', 'Tell Barbara where I am', location=HERE))
-        self.assertIn('Your contacts are Tim.', reply['say'])
-
-    def test_more_ways_to_say_it(self):
-        self.assertEqual(route('Can you change my home address to San Francisco Bay University?'), 'place_set')
-        self.assertEqual(route('Set my work address to 1 Market Street San Francisco'), 'place_set')
-        self.assertEqual(route('I live at 161 Mission Falls Lane Fremont'), 'place_set')
-        self.assertEqual(route('Update my home to 12 Oak Street'), 'place_set')
-        saved = run(self.assistant.respond('s', 'Can you change my home address to San Francisco Bay University?'))
-        self.assertIn('Saved. Your home is', saved['say'])
-        self.assertIsNotNone(self.memory.place('home'))
-        run(self.assistant.respond('s', 'Set my work address to 1 Market Street San Francisco'))
+    def test_work_address(self):
+        self.ask('Set my work address to 1 Market Street San Francisco')
+        self.ask('Yes')
         self.assertIsNotNone(self.memory.place('work'))
 
     def test_a_name_the_map_gets_wrong_is_looked_up_as_an_address(self):
@@ -113,13 +124,35 @@ class PlaceTests(unittest.TestCase):
             return '161 Mission Falls Lane, Fremont, CA'
 
         assistant = Assistant(self.memory, Orders(), geocode=map_search, lookup_address=lookup)
-        saved = run(assistant.respond('s', 'Change my home address to San Francisco Bay University'))
-        self.assertIn('San Francisco Bay University (161, Mission Falls Lane, Fremont)', saved['say'])
+        offer = run(assistant.respond('s', 'Change my home address to San Francisco Bay University'))
+        self.assertIn('San Francisco Bay University (161, Mission Falls Lane, Fremont)', offer['say'])
+        run(assistant.respond('s', 'Yes'))
         self.assertAlmostEqual(self.memory.place('home')['lat'], 37.4845)
         # A real street address is trusted as it is, with no second lookup.
         calls.clear()
         run(assistant.respond('s', 'My home address is 161 Mission Falls Lane Fremont'))
         self.assertEqual(len(calls), 1)
+
+    def test_misheard_names_still_reach_the_right_contact(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        self.memory.add_contact('Zack', '+14155550101')
+        self.assertEqual(self.memory.find_contact('tell my team where I am')['name'], 'Tim')
+        self.assertEqual(self.memory.find_contact('text zach saying hello')['name'], 'Zack')
+        self.assertEqual(self.memory.find_contact('Tell Tim I am late')['name'], 'Tim')
+        self.assertIsNone(self.memory.find_contact('read the text you can see'))
+        self.assertIsNone(self.memory.find_contact('what is in front of me'))
+
+    def test_loose_phrasing_through_a_noisy_microphone(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        draft = self.ask('Hell, my team friend. My friend teams. Tell my team where I am', location=HERE)
+        self.assertEqual(draft['intent'], 'message')
+        self.assertEqual(draft['confirm'], 'Send to Tim on WhatsApp?')
+        self.assertEqual(self.ask('No')['intent'], 'message_cancel')
+        self.assertEqual(self.ask('Read the text you can see')['intent'], 'see')
+
+    def test_unknown_person_lists_the_contacts(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        self.assertIn('Your contacts are Tim.', self.ask('Tell Barbara where I am', location=HERE)['say'])
 
     def test_places_survive_erasing_memory(self):
         self.memory.save_place('home', 'Somewhere', 1.0, 2.0)

@@ -96,6 +96,10 @@ PLACE_SET = re.compile(
     r'|(?:change|set|update|make|save|put) my (home|house|work|office|school|dorm)(?: address)?(?: to| as| is| at)?'
     r'|i live (?:at|in|on))\s+(.+?)[\s.!?]*$'
 )
+PLACE_ASK = re.compile(
+    r'\b(?:change|set|update|save|edit) my (home|house|work|office|school|dorm)(?: address)?[\s.!?]*$'
+)
+PLACE_CHANGE_TTL_SECONDS = 120
 PLACE_LOOKUP_PROMPT = (
     'Give the full street address of this place, on one line, with city and state. '
     'Reply with the address only. If you do not know it, reply with the single word UNKNOWN.'
@@ -145,7 +149,7 @@ def route(text: str, has_pending: bool = False) -> str:
         return 'nav_stop'
     if GO_BACK.search(value):
         return 'go_back'
-    if PLACE_SET.search(value):
+    if PLACE_SET.search(value) or PLACE_ASK.search(value):
         return 'place_set'
     if PLACE_GO.search(value):
         return 'place_go'
@@ -201,6 +205,7 @@ class Assistant:
         self.detector = detector or vision.detector
         self._messages: dict[str, dict] = {}
         self._calls: dict[str, dict] = {}
+        self._place_changes: dict[str, dict] = {}
 
     def pending_message(self, session: str) -> dict | None:
         message = self._messages.get(session)
@@ -214,6 +219,11 @@ class Assistant:
         order = self.orders.pending(session)
         message = self.pending_message(session)
         call = self._calls.get(session)
+        change = self._place_changes.get(session)
+        if change and time.time() > change['expires']:
+            change = self._place_changes.pop(session, None) and None
+        if change and not order and not message and not call:
+            return await self._continue_place_change(session, change, text, location)
         intent = route(text, bool(order or message))
         if intent == 'see' and LOOSE_MESSAGE.search(text.lower()) and self.memory.find_contact(text):
             intent = 'message'  # e.g. "hey, tell my friend Tim ..." heard through a noisy microphone
@@ -288,7 +298,7 @@ class Assistant:
         elif intent == 'where_am_i':
             await self._where(reply, image, mime, location)
         elif intent == 'place_set':
-            reply['say'] = await self._save_place(text, location)
+            await self._start_place_change(reply, session, text, location)
         elif intent == 'timer':
             self._timer(reply, text)
         elif intent == 'place_go':
@@ -467,19 +477,68 @@ class Assistant:
             return ''
         return '' if 'UNKNOWN' in answer.upper() or len(answer) > 160 else answer.splitlines()[0]
 
-    async def _save_place(self, text: str, location: tuple[float, float] | None) -> str:
-        """'My home address is ...', 'change my home address to ...', 'I live at ...' -> remember the place."""
-        match = PLACE_SET.search(text.lower().strip())
-        name = PLACE_NAMES[match.group(1) or match.group(2) or 'home']
-        address = text.strip()[match.start(3):].strip(' .!?')
+    # ----- changing a saved address: ask, read back, confirm -----
+    # Speech recognition mangles names and cuts addresses in two, so nothing is saved until the
+    # user has heard what was found and said yes.
+
+    async def _start_place_change(self, reply: dict, session: str, text: str, location: tuple[float, float] | None) -> None:
+        """'My home address is ...', 'change my home address to ...', 'I live at ...', or just 'change my home address'."""
+        value = text.lower().strip()
+        asked, match = PLACE_ASK.search(value), PLACE_SET.search(value)
+        if asked:  # "change my home address", with nothing after it
+            name, address = PLACE_NAMES[asked.group(1)], ''
+        else:
+            name = PLACE_NAMES[match.group(1) or match.group(2) or 'home']
+            address = text.strip()[match.start(3):].strip(' .!?')
+        change = {'name': name, 'stage': 'address', 'found': None, 'expires': time.time() + PLACE_CHANGE_TTL_SECONDS}
+        self._place_changes[session] = change
+        if len(address) < 3:
+            reply['say'] = f'What is your {name} address? Say the street number, the street and the city.'
+            return
+        await self._offer_place(reply, change, address, location)
+
+    async def _offer_place(self, reply: dict, change: dict, address: str, location: tuple[float, float] | None) -> None:
+        """Look the address up and read it back for a yes or no."""
+        name = change['name']
+        change['expires'] = time.time() + PLACE_CHANGE_TTL_SECONDS
         try:
             found = await self.resolve_place(address, location)
         except Exception:
-            return 'I could not reach the map service to look up that address. Please try again.'
+            found = None
         if found is None:
-            return f'I could not find "{address}" on the map. Try a fuller address with the city.'
-        self.memory.save_place(name, found['label'], found['lat'], found['lon'])
-        return f'Saved. Your {name} is {found["label"]}. Say "take me {name}" for directions.'
+            change['stage'] = 'address'
+            reply['say'] = f'I could not find "{address}" on the map. Say the address again, with the street number and the city.'
+            return
+        change.update(stage='confirm', found=found)
+        reply['confirm'] = f'Save {found["label"]} as your {name}?'
+        reply['say'] = f'I found {found["label"]}. Should I save it as your {name}? Say yes, or say the address again.'
+
+    async def _continue_place_change(self, session: str, change: dict, text: str, location: tuple[float, float] | None) -> dict:
+        reply = {'intent': 'place_set', 'heard': text, 'say': '', 'order': None, 'confirm': None, 'open_url': None,
+                 'map_url': None, 'timer': None, 'warnings': [], 'detections': [], 'provider': None}
+        value, name = text.lower().strip(), change['name']
+        if change['stage'] == 'confirm' and YES.search(value):
+            found = change['found']
+            self.memory.save_place(name, found['label'], found['lat'], found['lon'])
+            del self._place_changes[session]
+            reply['intent'] = 'place_saved'
+            reply['say'] = f'Saved. Your {name} is {found["label"]}. Say "take me {name}" for directions.'
+        elif NO.search(value):
+            if change['stage'] == 'confirm':
+                change.update(stage='address', found=None, expires=time.time() + PLACE_CHANGE_TTL_SECONDS)
+                reply['say'] = 'Okay, not saved. Say the address again, with the street number and the city. Or say cancel.'
+            else:
+                del self._place_changes[session]
+                reply['intent'] = 'place_cancel'
+                reply['say'] = f'Okay. Your {name} address is unchanged.'
+        else:
+            # Anything else is the address itself: a first try, or a correction.
+            address = text.strip(' .!?')
+            match = PLACE_SET.search(value)
+            if match:
+                address = text.strip()[match.start(3):].strip(' .!?')
+            await self._offer_place(reply, change, address, location)
+        return reply
 
     async def _go_to_place(self, session: str, text: str, location: tuple[float, float] | None) -> str:
         match = PLACE_GO.search(text.lower().strip())

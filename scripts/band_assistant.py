@@ -37,7 +37,7 @@ import guideband_vexo as bridge  # noqa: E402  (sets up the kit paths and loads 
 
 HEARTBEAT_SECONDS = 4
 RETRY_SECONDS = (4, 8, 12)  # pause after the first, second and later failed attempts
-QUIET_SECONDS = 1.2      # words unchanged for this long: the sentence is over
+QUIET_SECONDS = 1.6      # words unchanged for this long: the sentence is over
 MAX_SENTENCE_SECONDS = 9  # never wait longer than this before handing a sentence over
 
 
