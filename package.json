@@ -25,7 +25,7 @@
     "productName": "GuideBand",
     "directories": { "output": "release" },
     "files": ["desktop/**/*", "web/**/*", "package.json"],
-    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.lifestyle" },
+    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.lifestyle", "icon": "build/icon.icns" },
     "win": { "target": ["nsis", "portable"] },
     "linux": {
       "target": ["AppImage", "deb"],
