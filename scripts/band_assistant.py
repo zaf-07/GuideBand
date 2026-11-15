@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Make the Vexo band the microphone of the GuideBand assistant.
+"""Keep the Vexo band connected as the always-on microphone of the GuideBand assistant.
 
-    python scripts/band_assistant.py            # runs until Ctrl+C
-    python scripts/band_assistant.py --minutes 5
+    python scripts/band_assistant.py
 
-The band's microphone is streamed to Deepgram for transcription (the kit prints
-a line saying so, and the band's light turns solid blue). Every finished
-sentence is handed to the local GuideBand service, where the open live demo
-picks it up exactly as if it had been spoken to the laptop: it uses the camera,
-answers aloud, and still waits for a spoken yes before paying or messaging.
+The GuideBand service starts this by itself, so you normally never run it by hand.
+
+One Bluetooth connection is opened and kept. The band's microphone is streamed to
+Deepgram (the kit prints a line saying so, and the band's light turns solid blue),
+and each finished sentence is handed to the local service, where the open live demo
+handles it exactly like speech from the laptop microphone. If the band drops out
+of range or goes to sleep, the script keeps looking for it and reconnects by itself.
 
 Only the team's own band (Vexo-HACK-20) is ever connected. Audio is not stored.
 """
@@ -25,31 +26,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import guideband_vexo as bridge  # noqa: E402  (sets up the kit paths and loads backend/.env)
 
+HEARTBEAT_SECONDS = 4
+RETRY_SECONDS = 3
 
-def hand_over(service: str, text: str) -> bool:
-    """Give one heard sentence to the GuideBand service."""
-    body = urllib.parse.urlencode({'text': text}).encode()
+
+def post(service: str, path: str, **fields) -> bool:
+    body = urllib.parse.urlencode(fields).encode()
     try:
-        with urllib.request.urlopen(urllib.request.Request(service + '/band/heard', data=body), timeout=5) as response:
+        with urllib.request.urlopen(urllib.request.Request(service + path, data=body), timeout=5) as response:
             return response.status < 300
-    except Exception as error:
-        print(f'  (could not reach the GuideBand service: {error})')
+    except Exception:
         return False
 
 
-def run(transport: str, minutes: float, service: str, language: str) -> None:
+def session(transport: str, service: str, language: str, deadline: float) -> None:
+    """One connection, kept until it drops or the deadline passes."""
     import speech
 
     with bridge._connect(transport) as band:
+        try:
+            battery = band.get_battery().percent
+        except Exception:
+            battery = ''
         print(f'Connected to {band.name}. While its light is solid blue, nearby audio is sent to Deepgram: '
-              'tell the people around you.')
+              'tell the people around you.', flush=True)
+        post(service, '/band/state', connected='true', name=band.name, battery=battery)
 
         def on_text(value: str, is_final: bool) -> None:
-            if not is_final:
-                return
             value = value.strip()
-            if value:
-                print('Heard:', value, '' if hand_over(service, value) else '(not delivered)')
+            if is_final and value:
+                print('Heard:', value, flush=True)
+                post(service, '/band/heard', text=value)
 
         # A slightly longer pause ends a sentence, so a request is not cut in the middle.
         ears = speech.create(language=language, endpointing=400).start(on_text)
@@ -57,26 +64,48 @@ def run(transport: str, minutes: float, service: str, language: str) -> None:
         band.on('audio', feed)
         try:
             band.configure(audio=True)
-            print('Listening through the band. Press Ctrl+C to stop.')
-            deadline = time.monotonic() + minutes * 60
+            next_beat = 0.0
             while time.monotonic() < deadline:
-                band.wait(0.2)
-        except KeyboardInterrupt:
-            pass
+                band.wait(0.2)  # raises when the connection is lost
+                if time.monotonic() >= next_beat:
+                    next_beat = time.monotonic() + HEARTBEAT_SECONDS
+                    post(service, '/band/state', connected='true', name=band.name, battery=battery)
         finally:
             try:
                 band.configure(audio=False)
-            finally:
-                band.off('audio', feed)
+            except Exception:
+                pass
+            band.off('audio', feed)
+            try:
                 ears.stop()
-        print('Stopped. The band microphone is off.')
+            except Exception:
+                pass
+
+
+def run(transport: str, minutes: float, service: str, language: str) -> None:
+    deadline = time.monotonic() + minutes * 60
+    while time.monotonic() < deadline:
+        try:
+            session(transport, service, language, deadline)
+        except KeyboardInterrupt:
+            break
+        except (SystemExit, Exception) as problem:  # not found, asleep, out of range: keep trying
+            reason = str(problem).splitlines()[0][:120] if str(problem) else type(problem).__name__
+            print('Band not connected:', reason, flush=True)
+        post(service, '/band/state', connected='false')
+        time.sleep(RETRY_SECONDS)
+    post(service, '/band/state', connected='false')
+    print('Stopped. The band microphone is off.', flush=True)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Use the Vexo band as the GuideBand microphone.')
+    parser = argparse.ArgumentParser(description='Keep the Vexo band connected as the GuideBand microphone.')
     parser.add_argument('--transport', choices=('ble', 'serial', 'sim'), default='ble')
-    parser.add_argument('--minutes', type=float, default=30)
+    parser.add_argument('--minutes', type=float, default=480)
     parser.add_argument('--service', default='http://127.0.0.1:8000')
     parser.add_argument('--language', default='en')
     args = parser.parse_args()
-    run(args.transport, max(0.1, min(120, args.minutes)), args.service.rstrip('/'), args.language)
+    try:
+        run(args.transport, max(0.1, args.minutes), args.service.rstrip('/'), args.language)
+    except KeyboardInterrupt:
+        post(args.service.rstrip('/'), '/band/state', connected='false')

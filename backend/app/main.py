@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -70,7 +72,7 @@ def health(): return {'status':'ok','time':now(),'raw_media_storage':False}
 def system_status():
     stripe_key = os.getenv('STRIPE_SECRET_KEY', '')
     return {
-        'wearable': wearable_status(),
+        'wearable': band_view(),
         'modules': {'commands':'ready','journey':'demo','bridge':'ready','vision':vision.detector.status()['state']},
         'vision': {'detector': vision.detector.status(), 'cloud_providers': vision.configured_providers(), 'model': llm.model()},
         'payments': {'mode': 'stripe_test' if is_test_key(stripe_key) else ('refused_live_key' if stripe_key else 'simulated'),
@@ -264,17 +266,109 @@ async def bridge_sign(images: list[UploadFile] = File(...)):
 band_heard: list[dict] = []
 band_counter = 0
 
+# One background process (scripts/band_assistant.py) keeps a single Bluetooth connection to the band,
+# so there is no reconnecting for every sentence. It reports here that it is alive.
+band_state = {'connected': False, 'last_seen': 0.0, 'name': None, 'battery': None}
+band_process: subprocess.Popen | None = None
+BAND_SCRIPT = Path(__file__).resolve().parents[2] / 'scripts' / 'band_assistant.py'
+BAND_KIT = Path(__file__).resolve().parents[2] / 'vexo-open-kit'
+
+
+def band_running() -> bool:
+    return band_process is not None and band_process.poll() is None
+
+
+def band_connected() -> bool:
+    return band_state['connected'] and time.time() - band_state['last_seen'] < 15
+
+
+def band_start() -> bool:
+    """Start the permanent band connection, once."""
+    global band_process
+    if band_running():
+        return True
+    if not BAND_SCRIPT.is_file() or not BAND_KIT.is_dir():
+        return False
+    service = f"http://127.0.0.1:{os.getenv('GUIDEBAND_PORT', '8000')}"
+    band_process = subprocess.Popen(
+        [sys.executable, str(BAND_SCRIPT), '--service', service],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env={**os.environ, 'PYTHONUNBUFFERED': '1'},
+    )
+    return True
+
+
+def band_stop() -> None:
+    global band_process
+    if band_running():
+        band_process.terminate()
+    band_process = None
+    band_state.update(connected=False)
+
+
+def band_view() -> dict:
+    """The wearable status, with the live connection taken into account."""
+    view = wearable_status()
+    view['bridge_running'] = band_running()
+    if band_connected():
+        view.update(connected=True, transport='ble', streaming=True)
+        if band_state['name']:
+            view['band_name'] = band_state['name']
+        if band_state['battery'] not in (None, ''):
+            view['battery'] = {'percent': band_state['battery'], 'charging': False, 'state': 'battery'}
+    elif band_running():
+        view.update(connected=False, streaming=False)  # still looking for the band
+    return view
+
+
+@app.on_event('startup')
+def band_autostart() -> None:
+    if os.getenv('BAND_AUTOCONNECT', 'true').lower() not in {'0', 'false', 'no'}:
+        band_start()
+
+
+@app.on_event('shutdown')
+def band_shutdown() -> None:
+    band_stop()
+
+
+@app.post('/band/start')
+def band_start_endpoint():
+    if not band_start():
+        raise HTTPException(503, 'The Vexo kit is not installed. Run scripts/setup_vexo_open_kit.sh first.')
+    return band_view()
+
+
+@app.post('/band/stop')
+def band_stop_endpoint():
+    band_stop()
+    return band_view()
+
+
+@app.post('/band/state')
+def band_state_update(connected: bool = Form(...), name: str = Form(''), battery: str = Form('')):
+    band_state.update(connected=connected, last_seen=time.time())
+    if name:
+        band_state['name'] = name
+    if battery.isdigit():
+        band_state['battery'] = int(battery)
+    return {'ok': True}
+
+
 @app.post('/band/heard', status_code=201)
 def band_heard_add(text: str = Form(..., min_length=1, max_length=300)):
     global band_counter
     band_counter += 1
+    band_state.update(connected=True, last_seen=time.time())
     band_heard.append({'id': band_counter, 'text': text.strip()})
     del band_heard[:-20]
     return {'id': band_counter}
 
+
 @app.get('/band/heard')
 def band_heard_list(after: int = 0):
-    return {'last': band_counter, 'items': [item for item in band_heard if item['id'] > after]}
+    return {'last': band_counter, 'items': [item for item in band_heard if item['id'] > after],
+            'band': {'connected': band_connected(), 'running': band_running(),
+                     'name': band_state['name'], 'battery': band_state['battery']}}
 
 # ---------- Tasks and events ----------
 
@@ -295,12 +389,13 @@ async def events(ws: WebSocket):
 
 @app.get('/wearable/status')
 def get_wearable_status():
-    return wearable_status()
+    return band_view()
 
 @app.post('/wearable/refresh')
 async def post_wearable_refresh():
-    await refresh_band_state()
-    return wearable_status()
+    if not band_running():
+        await refresh_band_state()
+    return band_view()
 
 @app.post('/wearable/listen')
 async def post_wearable_listen(request: Request):
@@ -337,6 +432,10 @@ async def post_wearable_listen(request: Request):
         except Exception:
             pass
 
+    if band_running():
+        return {'ok': False, 'text': '', 'action': None,
+                'say': 'The band is already listening all the time. Just speak.' if band_connected()
+                else 'I am still looking for the band. Double-tap it and keep it close.'}
     try:
         transcript = await listen_band(seconds=seconds, language=language)
     except WearableError as error:

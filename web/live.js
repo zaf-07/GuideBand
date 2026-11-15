@@ -383,6 +383,7 @@
   }
   const micPlaceholder = () => el('wakeToggle').checked ? 'Say “Guide, …” or type here' : 'Just talk, or type here';
   function startMic() {
+    if (bandLive) return; // the band is the microphone right now
     if (el('micSource').value) return void startDeviceMic(); // a chosen microphone, e.g. the bracelet
     if (!Recognition || recognizer || micBlocked || !el('micToggle').checked) return;
     const r = new Recognition();
@@ -744,54 +745,57 @@
   }, 20000);
 
   // ---------- Vexo band microphone ----------
-  // Sentences heard through the band arrive from the service and are handled like any other speech.
-  let bandCursor = -1;
+  // The service keeps one permanent connection to the band. Sentences heard through it arrive here
+  // and are handled like any other speech; while the band is connected the laptop microphone rests,
+  // so nothing is heard twice.
+  let bandCursor = -1, bandLive = false;
+  function showBandLive(band) {
+    const was = bandLive;
+    bandLive = Boolean(band && band.connected);
+    el('webBandDot').className = 'dot' + (bandLive ? '' : (band?.running ? ' dot-off' : ' dot-bad'));
+    el('webBandLabel').textContent = bandLive
+      ? (band.name || 'Vexo band') + (band.battery != null ? ' · ' + band.battery + '%' : '') + ' · listening'
+      : (band?.running ? 'Looking for the band… double-tap it' : 'Vexo band off');
+    el('webBandListenBtn').textContent = band?.running ? 'Disconnect' : 'Connect band';
+    el('webBandListenBtn').disabled = false;
+    el('bandDot').className = el('webBandDot').className;
+    el('bandStatus').textContent = bandLive ? 'Connected — ' + (band.name || 'Vexo band') + ', always listening'
+      : (band?.running ? 'Looking for the band…' : 'Not connected');
+    el('bandDetail').textContent = bandLive
+      ? 'Battery ' + (band.battery ?? '?') + '% · the connection stays open, just speak into the band.'
+      : 'Double-tap the band so its light blinks blue and keep it close. It connects by itself and stays connected.';
+    if (bandLive && !was) {
+      const r = recognizer; recognizer = null;
+      if (r) { r.onend = null; r.abort(); }
+      stopDeviceMic();
+      micState('Listening through the Vexo band', 'on');
+      addMessage('guide', 'The band is connected. Just speak into it.');
+    }
+    if (!bandLive && was) { micState('Microphone off', 'off'); startMic(); }
+  }
   setInterval(async () => {
     if (!online) return;
     try {
       const heard = await call('/band/heard?after=' + Math.max(0, bandCursor));
+      showBandLive(heard.band);
       if (bandCursor < 0) { bandCursor = heard.last; return; } // ignore anything said before this page opened
       bandCursor = heard.last;
-      for (const item of heard.items) {
-        el('micState').dataset.band = 'on';
-        handleSpeech(item.text, 'band');
-      }
+      for (const item of heard.items) handleSpeech(item.text, 'band');
     } catch {}
   }, 700);
+  el('webBandListenBtn').onclick = async () => {
+    const running = el('webBandListenBtn').textContent === 'Disconnect';
+    el('webBandListenBtn').disabled = true;
+    try { await call(running ? '/band/stop' : '/band/start', { method: 'POST' }); }
+    catch (error) { addMessage('error', error.message); }
+  };
 
   // ---------- Settings: band connection and permissions ----------
-  function showBand(band) {
-    const connected = Boolean(band && band.connected);
-    // Keep the pill in the header in step with the Settings card.
-    el('webBandDot').className = 'dot' + (connected ? '' : ' dot-bad');
-    el('webBandLabel').textContent = connected
-      ? (band.band_name || 'Vexo band') + ' · ' + (band.battery?.percent ?? '?') + '%'
-      : 'Vexo band not connected';
-    el('bandDot').className = 'dot' + (connected ? '' : ' dot-bad');
-    el('bandStatus').textContent = connected ? 'Connected — ' + (band.band_name || 'Vexo band') : 'Not connected';
-    el('bandDetail').textContent = connected
-      ? 'Battery ' + (band.battery?.percent ?? '?') + '% · ' + String(band.transport || 'ble').toUpperCase() + ' · firmware ' + (band.firmware || '?')
-      : 'Double-tap the band so its light blinks blue, keep it close, and close anything else connected to it. Then check again.';
-  }
-  let bandChecking = false;
+  function showBand() {} // the header pill and the Settings card are kept current by showBandLive
   el('bandCheck').onclick = async () => {
-    if (bandChecking) return;
-    bandChecking = true;
-    el('webBandLabel').textContent = 'Looking for the band…';
-    const button = el('bandCheck');
-    button.disabled = true;
-    button.textContent = 'Checking… about 10 seconds';
-    el('bandStatus').textContent = 'Looking for the band…';
-    try { showBand(await call('/wearable/refresh', { method: 'POST' })); }
-    catch (error) { el('bandStatus').textContent = 'Could not check: ' + error.message; }
-    button.disabled = false;
-    button.textContent = 'Check connection';
-    bandChecking = false;
-    if (el('webBandLabel').textContent === 'Looking for the band…') el('webBandLabel').textContent = 'Vexo band not connected';
+    try { await call('/band/start', { method: 'POST' }); } catch (error) { el('bandStatus').textContent = error.message; }
   };
-  // Look for the band once when the page opens, so it is ready without a visit to Settings.
-  setTimeout(() => { if (online) el('bandCheck').onclick(); }, 2500);
-  el('bandListen').onclick = () => { selectTab('assistant'); el('webBandListenBtn')?.click(); };
+  el('bandListen').onclick = () => selectTab('assistant');
 
   const permissionText = { granted: 'Allowed', prompt: 'Not allowed yet', denied: 'Blocked — allow it from the lock icon in the address bar', on: 'On', unknown: 'Ask to find out' };
   async function refreshPermissions() {
