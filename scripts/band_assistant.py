@@ -39,6 +39,8 @@ HEARTBEAT_SECONDS = 4
 RETRY_SECONDS = (4, 8, 12)  # pause after the first, second and later failed attempts
 QUIET_SECONDS = 1.6      # words unchanged for this long: the sentence is over
 MAX_SENTENCE_SECONDS = 9  # never wait longer than this before handing a sentence over
+FAST_QUIET_SECONDS = 0.7   # while the assistant is talking, so an interruption is noticed quickly
+FAST_MAX_SECONDS = 2.5
 
 
 def post(service: str, path: str, **fields) -> bool:
@@ -60,6 +62,7 @@ class Sentences:
         self.pending = ''    # words heard since then
         self.started = 0.0
         self.changed = 0.0
+        self.fast = False
 
     def heard(self, text: str, final: bool) -> None:
         """Called by the speech service with everything said in the current sentence so far."""
@@ -82,7 +85,8 @@ class Sentences:
             if not self.pending:
                 return
             now = time.monotonic()
-            if now - self.changed >= QUIET_SECONDS or now - self.started >= MAX_SENTENCE_SECONDS:
+            quiet, longest = (FAST_QUIET_SECONDS, FAST_MAX_SECONDS) if self.fast else (QUIET_SECONDS, MAX_SENTENCE_SECONDS)
+            if now - self.changed >= quiet or now - self.started >= longest:
                 self._hand_over(reset=False)
 
     def clear(self) -> None:
@@ -126,9 +130,13 @@ def session(transport: str, service: str, language: str, deadline: float) -> Non
             while alive.is_set():
                 try:
                     with urllib.request.urlopen(service + '/band/mute', timeout=2) as response:
-                        speaking = bool(json.load(response).get('muted'))
+                        state = json.load(response)
+                    speaking = bool(state.get('muted'))
+                    # Listening on while the assistant talks: pass words along in short pieces.
+                    sentences.fast = bool(state.get('speaking')) and not speaking
                 except Exception:
                     speaking = False
+                    sentences.fast = False
                 if speaking and not muted.is_set():
                     muted.set()
                     sentences.clear()

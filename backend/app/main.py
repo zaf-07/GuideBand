@@ -356,20 +356,27 @@ def band_state_update(connected: bool = Form(...), name: str = Form(''), battery
 
 # While the assistant is speaking, the band must not pass its voice back in as a request.
 band_muted_until = 0.0
+band_interrupt = False
 
 
 @app.post('/band/mute')
-def band_mute_set(on: bool = Form(...)):
-    """The page calls this when the assistant starts (on) and stops (off) speaking."""
-    global band_muted_until
-    # The page repeats 'on' every second while it is really speaking; if it stops, the mute ends by itself.
+def band_mute_set(on: bool = Form(...), interrupt: bool = Form(False)):
+    """The page calls this when the assistant starts (on) and stops (off) speaking.
+
+    With `interrupt` the band keeps listening while the assistant talks, so the user can cut in;
+    the page then removes the assistant's own words from what comes back.
+    """
+    global band_muted_until, band_interrupt
+    # The page repeats 'on' every second while it is really speaking; if it stops, this ends by itself.
     band_muted_until = time.time() + (2.5 if on else 0.25)
-    return {'muted': on}
+    band_interrupt = interrupt
+    return {'speaking': on, 'muted': on and not interrupt}
 
 
 @app.get('/band/mute')
 def band_mute_get():
-    return {'muted': time.time() < band_muted_until}
+    speaking = time.time() < band_muted_until
+    return {'speaking': speaking, 'muted': speaking and not band_interrupt}
 
 
 @app.post('/band/heard', status_code=201)

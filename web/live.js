@@ -84,6 +84,7 @@
     if (!bandLive) return;
     const body = new FormData();
     body.append('on', String(on));
+    body.append('interrupt', String(el('bargeToggle').checked));
     fetch(api + '/band/mute', { method: 'POST', body, keepalive: true }).catch(() => {});
   }
   function stopSpeaking() {
@@ -124,6 +125,29 @@
     const text = plain(heard), now = Date.now(), tail = source === 'band' ? 1500 : 4000;
     if (!isSpeaking() && now - lastSpeechEnd > tail) return false;
     return text.length >= 4 && recentlySpoken.some(item => now - item.at < 20000 && item.text.includes(text));
+  }
+  /**
+   * What the user said, with the assistant's own words taken out. Returns '' when it was only an echo.
+   * The band hears the speakers too, so a sentence caught during a reply is a mix of both voices, and
+   * the speech service mishears the echo ("head west" comes back as "head rest"). So an interruption is
+   * only accepted when it starts with a word that begins a request and that the assistant did not say.
+   */
+  const REQUEST_WORD = /^(what|whats|where|wheres|who|how|when|take|tell|text|send|write|buy|pay|stop|cancel|read|remember|change|set|call|navigate|directions|find|open|show|describe|look|zoom|help|go|get|give|remind|start|save|forget|quiet|enough|wait|nearest|closest|is|are|can|could|please)$/;
+  function stripEcho(heard) {
+    const spoken = recentlySpoken.filter(item => Date.now() - item.at < 30000).map(item => item.text).join(' ').split(' ');
+    const said = new Set(spoken), stems = new Set(spoken.filter(w => w.length >= 4).map(w => w.slice(0, 4)));
+    const words = plain(heard).split(' ').filter(Boolean);
+    const wake = words.findIndex(w => /^(guide|guides)$/.test(w));
+    if (wake >= 0 && words.length > wake + 1) return words.slice(wake + 1).join(' '); // "Guide, ..." always wins
+    const own = w => !said.has(w) && !said.has(w.replace(/s$/, '')) && !(w.length >= 4 && stems.has(w.slice(0, 4)));
+    // "is", "are", "can", "please" open a request only when the next word is the user's own as well.
+    const weak = /^(is|are|can|could|please)$/;
+    for (let i = 0; i < words.length; i++) {
+      if (!REQUEST_WORD.test(words[i]) || !own(words[i])) continue;
+      if (weak.test(words[i]) && !(words[i + 1] && own(words[i + 1]))) continue;
+      return words.slice(i).join(' ');
+    }
+    return '';
   }
   function speak(text, { warning = false, force = false } = {}) {
     if (!('speechSynthesis' in window) || !text) return;
@@ -434,7 +458,16 @@
       else setZoom(1, true);
       return;
     }
-    if (isEcho(text, source)) return heardNote(text, 'ignored, that was my own voice');
+    if (source === 'band' && el('bargeToggle').checked && (isSpeaking() || Date.now() - lastSpeechEnd < 1500)) {
+      // The band heard this while the assistant was talking: keep only the words that are not the assistant's own.
+      const mine = stripEcho(text);
+      if (!mine) return heardNote(text, 'ignored, that was my own voice');
+      if (/^(stop|quiet|enough|wait|shut up|be quiet)$/.test(mine)) { // just silence, not a new request
+        heardNote(text); stopSpeaking(); buzz(60);
+        return;
+      }
+      text = mine;
+    } else if (isEcho(text, source)) return heardNote(text, 'ignored, that was my own voice');
     // The browser's recogniser can deliver one sentence twice within a moment; the band never does.
     // A sentence the user deliberately repeats must always get through.
     const key = plain(text);
