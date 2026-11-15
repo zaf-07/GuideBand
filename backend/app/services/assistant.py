@@ -31,6 +31,8 @@ RECALL = re.compile(
 )
 WHERE = re.compile(r"\bwhere am i\b|\bwhat(?:'s| is) (around|near|nearby)( me)?\b|\bmy (current )?location\b|\bwhat street\b")
 MESSAGE = re.compile(r'^\W*(?:please )?(tell|text|message|whatsapp|send)\s+(?!me\b)|\bshare my location\b')
+CALL = re.compile(r'\b(?:call|dial|phone)\s+(?:my\s+)?([a-z][a-z0-9 .-]{1,39})\b', re.IGNORECASE)
+OPEN_APP = re.compile(r'^\W*(?:open|launch|start)\s+(?:the\s+)?(whatsapp|messages|maps|facetime|calendar)\b', re.IGNORECASE)
 BRIDGE = re.compile(r'\bbridge\b')
 NAV = re.compile(
     r'\b(take|guide|walk|navigate|lead|bring|get) me to\b|\b(directions?|route|way) to\b'
@@ -72,6 +74,10 @@ def route(text: str, has_pending: bool = False) -> str:
         return 'where_am_i'
     if MESSAGE.search(value):
         return 'message'
+    if CALL.search(value):
+        return 'call'
+    if OPEN_APP.search(value):
+        return 'open_app'
     if NAV.search(value):
         return 'navigate'
     if SCAN_PAY.search(value):
@@ -112,6 +118,7 @@ class Assistant:
         self.orders = orders
         self.detector = detector or vision.detector
         self._messages: dict[str, dict] = {}
+        self._calls: dict[str, dict] = {}
 
     def pending_message(self, session: str) -> dict | None:
         message = self._messages.get(session)
@@ -124,7 +131,15 @@ class Assistant:
                       location: tuple[float, float] | None = None) -> dict:
         order = self.orders.pending(session)
         message = self.pending_message(session)
+        call = self._calls.get(session)
         intent = route(text, bool(order or message))
+        if call and not order and not message:
+            if YES.search(text.lower()):
+                intent = 'call_confirm'
+            elif NO.search(text.lower()):
+                intent = 'call_cancel'
+            else:
+                intent = 'call_waiting'
         if message and not order:
             intent = intent.replace('pay_', 'message_')
         reply = {'intent': intent, 'heard': text, 'say': '', 'order': None, 'confirm': None, 'open_url': None,
@@ -163,6 +178,20 @@ class Assistant:
         elif intent == 'message_waiting':
             reply['confirm'] = f'Send to {message["name"]} on WhatsApp?'
             reply['say'] = f'I am waiting for a yes or no on the message to {message["name"]}.'
+        elif intent == 'call':
+            await self._prepare_call(reply, session, text)
+        elif intent == 'call_confirm':
+            contact = self._calls.pop(session)
+            reply['open_url'] = f'tel:{contact["phone"]}'
+            reply['say'] = f'Calling {contact["name"]}.'
+        elif intent == 'call_cancel':
+            self._calls.pop(session, None)
+            reply['say'] = 'Cancelled. I will not call anyone.'
+        elif intent == 'call_waiting':
+            reply['confirm'] = f'Call {call["name"]}?'
+            reply['say'] = f'I am waiting for a yes or no before calling {call["name"]}.'
+        elif intent == 'open_app':
+            self._open_app(reply, text)
         elif intent == 'nothing_pending':
             reply['say'] = 'There is nothing waiting for your answer.'
         elif intent == 'forget':
@@ -240,6 +269,34 @@ class Assistant:
         reply['confirm'] = f'Send to {contact["name"]} on WhatsApp?'
         spoken = body.split(' Map:')[0]
         reply['say'] = f'Message to {contact["name"]}: {spoken} Say yes to send, or no to cancel.'
+
+    async def _prepare_call(self, reply: dict, session: str, text: str) -> None:
+        match = CALL.search(text)
+        name = match.group(1).strip() if match else ''
+        contact = self.memory.find_contact(name)
+        if contact is None:
+            reply['say'] = f'I do not have {name or "that person"} in your contacts. Add them in the Family tab first.'
+            return
+        self._calls[session] = contact
+        reply['confirm'] = f'Call {contact["name"]}?'
+        reply['say'] = f'I found {contact["name"]}. Say yes to call, or no to cancel.'
+
+    def _open_app(self, reply: dict, text: str) -> None:
+        match = OPEN_APP.search(text)
+        app = match.group(1).lower() if match else ''
+        urls = {
+            'whatsapp': 'whatsapp://',
+            'messages': 'sms:',
+            'maps': 'maps://',
+            'facetime': 'facetime://',
+            'calendar': 'ical://',
+        }
+        url = urls.get(app)
+        if url is None:
+            reply['say'] = 'I can only open WhatsApp, Messages, Maps, FaceTime, or Calendar.'
+            return
+        reply['open_url'] = url
+        reply['say'] = f'Opening {app.capitalize()}.'
 
     async def _send_message(self, reply: dict, message: dict) -> None:
         """The user said yes. Deliver directly when a message service is set up; otherwise open WhatsApp."""

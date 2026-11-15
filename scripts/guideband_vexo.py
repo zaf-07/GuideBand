@@ -88,8 +88,6 @@ def listen(transport: str, seconds: float, language: str) -> None:
             "sent to Deepgram; tell everyone nearby before that happens."
         )
         options = {'language': language}
-        if language == 'multi':
-            options['language_hint'] = ['en', 'ru']
         final = threading.Event()
 
         def on_text(value, is_final):

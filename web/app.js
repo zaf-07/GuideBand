@@ -11,6 +11,19 @@
     const pill = $('#clockPill');
     if (pill) pill.innerHTML = `<span class="dot"></span>${dayStr} · ${timeStr}`;
   }
+  function updateSettingsBand(data) {
+    const dot = $('#settingsBandDot');
+    const state = $('#settingsBandState');
+    const details = $('#settingsBandDetails');
+    if (!dot || !state || !details) return;
+    const connected = Boolean(data.connected);
+    dot.className = connected ? 'dot' : 'dot dot-searching';
+    state.textContent = connected ? 'Connected' : 'Not connected';
+    const transport = (data.transport || 'ble').toUpperCase();
+    details.textContent = connected
+      ? `${data.band_name || 'Vexo-HACK-20'} · ${transport} · battery ${data.battery?.percent ?? 'unknown'}%`
+      : (data.capabilities?.find(item => item.name === 'bluetooth_presence')?.evidence || 'No connected Vexo BLE device detected');
+  }
   updateClock();
   setInterval(updateClock, 1000);
 
@@ -28,6 +41,7 @@
         player.play();
         return;
       }
+
     } catch (_) {}
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -66,6 +80,7 @@
             bandBattery.textContent = 'Searching BLE...';
           }
         }
+        updateSettingsBand(data);
       }
     } catch (_) {
       // Backend might be offline
@@ -75,6 +90,35 @@
   }
   pollWearableStatus();
   setInterval(pollWearableStatus, 4000);
+
+  function showSection(settings) {
+    $('#main').hidden = settings;
+    $('#settingsPanel').hidden = !settings;
+    $('#homeTab').classList.toggle('active', !settings);
+    $('#settingsTab').classList.toggle('active', settings);
+  }
+  $('#homeTab')?.addEventListener('click', () => showSection(false));
+  $('#settingsTab')?.addEventListener('click', () => showSection(true));
+  $('#refreshBandBtn')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = 'Checking…';
+    try {
+      const response = await fetch(`${API}/wearable/refresh`, { method: 'POST' });
+      const data = await response.json();
+      updateSettingsBand(data);
+      bandConnected = Boolean(data.connected);
+      $('#replyText').textContent = data.connected
+        ? 'The band is connected and ready.'
+        : 'The band was not found. Double-tap it and check again.';
+    } catch (error) {
+      $('#settingsBandState').textContent = 'Connection check failed';
+      $('#settingsBandDetails').textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Check connection';
+    }
+  });
 
   // --- Camera Frame Snapshot Helper ---
   async function getCameraFrameBlob() {
@@ -128,6 +172,7 @@
           heardEl.textContent = `“${data.text}”`;
           replyEl.textContent = data.say || 'Understood.';
           speak(data.say);
+          if (data.open_url) window.open(data.open_url, '_blank', 'noopener');
         } else {
           heardEl.textContent = 'No speech detected on band.';
           replyEl.textContent = data.say || 'No speech was transcribed. Keep the band close to your mouth and speak after the solid blue light appears.';
@@ -158,7 +203,7 @@
   const orb = $('#talkOrb');
   if (orb) {
     orb.onclick = () => {
-      if (bandConnected) {
+      if (bandConnected || !SpeechRec) {
         listenThroughBand(7);
       } else {
         browserListen();
@@ -212,8 +257,14 @@
         const data = await res.json();
         $('#replyText').textContent = data.say || 'Action complete.';
         speak(data.say);
+        if (data.open_url) window.open(data.open_url, '_blank', 'noopener');
+      } else {
+        const error = await res.json().catch(() => ({}));
+        $('#replyText').textContent = error.detail || 'The assistant could not complete that action.';
       }
-    } catch (_) {}
+    } catch (error) {
+      $('#replyText').textContent = `Assistant error: ${error.message}`;
+    }
   }
 
   // --- Quick Command Chips ---

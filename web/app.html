@@ -105,6 +105,39 @@
       background: #ef4444;
       animation: pulse-red 1.2s infinite;
     }
+    .app-nav {
+      display: flex;
+      gap: 0.4rem;
+    }
+    .app-nav button {
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      padding: 0.45rem 0.8rem;
+      background: var(--glass);
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .app-nav button.active {
+      background: var(--accent);
+      color: var(--accent-ink);
+    }
+    .settings-panel {
+      padding: 1.75rem;
+      border-radius: var(--radius);
+    }
+    .settings-panel[hidden] { display: none; }
+    .connection-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .connection-state { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; }
+    .connection-details { color: var(--muted); font-size: 0.9rem; margin: 0.35rem 0 0; }
     @keyframes pulse-red {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.85; transform: scale(1.04); }
@@ -308,6 +341,10 @@
           <span id="bandBtnText">Listen on Band</span>
         </button>
       </div>
+      <nav class="app-nav" aria-label="Application sections">
+        <button id="homeTab" class="active" type="button">Assistant</button>
+        <button id="settingsTab" type="button">Settings</button>
+      </nav>
     </header>
 
     <main id="main">
@@ -392,6 +429,19 @@
         </label>
       </section>
     </main>
+    <section id="settingsPanel" class="settings-panel glass" hidden aria-labelledby="settingsTitle">
+      <p class="sheet-eyebrow" style="color:var(--accent); font-weight:700; margin:0 0 0.25rem;">SETTINGS</p>
+      <h2 id="settingsTitle" style="margin:0;">Band connection</h2>
+      <p style="color:var(--muted);">A Vexo band may not appear in macOS Bluetooth Settings. Use this check after double-tapping the band.</p>
+      <div class="connection-row">
+        <div>
+          <div class="connection-state"><span class="dot dot-searching" id="settingsBandDot"></span><span id="settingsBandState">Not checked</span></div>
+          <p class="connection-details" id="settingsBandDetails">Press Check connection to query the band.</p>
+        </div>
+        <button class="btn btn-primary btn-small" id="refreshBandBtn" type="button">Check connection</button>
+      </div>
+      <p class="connection-details">If it is not found: wake the band with a double-tap, keep it near the Mac, then check again.</p>
+    </section>
   </div>
 
   <!-- Confirm Dialog -->
@@ -423,6 +473,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

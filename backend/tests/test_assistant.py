@@ -44,6 +44,8 @@ class RouteTests(unittest.TestCase):
             'Buy me a coffee': 'pay_quote',
             'Forget everything': 'forget',
             'Start Bridge': 'bridge',
+            'Call Alex': 'call',
+            'Open WhatsApp': 'open_app',
             'yes': 'nothing_pending',
         }
         for text, intent in cases.items():
@@ -157,6 +159,20 @@ class AssistantTests(NoCloud):
 
     def test_seeing_needs_a_camera_frame(self):
         self.assertIn('camera', run(self.make().respond('s', "What's in front of me?"))['say'])
+
+    def test_call_requires_confirmation_and_returns_dial_url(self):
+        assistant = self.make()
+        self.memory.add_contact('Alex', '+14155550111')
+        draft = run(assistant.respond('s', 'Call Alex'))
+        self.assertEqual(draft['intent'], 'call')
+        self.assertEqual(draft['confirm'], 'Call Alex?')
+        called = run(assistant.respond('s', 'Yes'))
+        self.assertEqual(called['open_url'], 'tel:14155550111')
+        self.assertEqual(called['say'], 'Calling Alex.')
+
+    def test_open_app_uses_allowlisted_url(self):
+        reply = run(self.make().respond('s', 'Open WhatsApp'))
+        self.assertEqual((reply['intent'], reply['open_url']), ('open_app', 'whatsapp://'))
 
     def test_see_then_recall_offline(self):
         assistant = self.make([det('chair', 0.2, 0.5)])
