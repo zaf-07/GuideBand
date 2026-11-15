@@ -71,6 +71,15 @@
   const player = new Audio();
   const isSpeaking = () => cloudPlaying || speechSynthesis.speaking;
   /** Tell the service the assistant is talking, so the band does not pass that voice back as a request. */
+  let replySpeaking = false, bandMuted = false;
+  // Once a second: mute the band only while a reply is really being spoken. The mute expires by itself
+  // on the service, so it can never get stuck and leave the band deaf.
+  setInterval(() => {
+    const speaking = cloudPlaying || (replySpeaking && speechSynthesis.speaking);
+    if (speaking) muteBand(true);
+    else if (bandMuted) muteBand(false);
+    bandMuted = speaking;
+  }, 1000);
   function muteBand(on) {
     if (!bandLive) return;
     const body = new FormData();
@@ -78,7 +87,7 @@
     fetch(api + '/band/mute', { method: 'POST', body, keepalive: true }).catch(() => {});
   }
   function stopSpeaking() {
-    if (isSpeaking()) muteBand(false);
+    replySpeaking = false;
     speechSynthesis.cancel();
     player.pause();
     cloudPlaying = false;
@@ -89,21 +98,20 @@
     const response = await fetch(api + '/speech', { method: 'POST', body });
     if (!response.ok) throw new Error('voice unavailable');
     const url = URL.createObjectURL(await response.blob());
-    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); muteBand(false); };
+    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); };
     player.onended = done;
     player.onerror = done;
     player.src = url;
     cloudPlaying = true;
-    muteBand(true);
     try { await player.play(); } catch (error) { done(); throw error; }
   }
   function speakLocal(text, warning) {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = warning ? 1.08 : 1;
-    utterance.onstart = () => muteBand(true);
-    utterance.onend = () => { lastSpeechEnd = Date.now(); muteBand(false); };
-    utterance.onerror = () => muteBand(false);
+    utterance.onstart = () => { replySpeaking = !warning; };
+    utterance.onend = () => { lastSpeechEnd = Date.now(); replySpeaking = false; };
+    utterance.onerror = () => { replySpeaking = false; };
     speechSynthesis.speak(utterance);
   }
   const plain = text => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
