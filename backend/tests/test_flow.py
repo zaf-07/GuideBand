@@ -70,6 +70,33 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(timer_label('set a timer for five minutes'), '')
         self.assertIn('For how long', run(self.assistant.respond('s', 'Set a timer'))['say'])
 
+    def test_a_failed_request_does_not_reuse_the_previous_map(self):
+        async def nothing_nearby(term, lat, lon):
+            return None
+
+        async def no_such_place(text, lat=None, lon=None):
+            return None
+
+        first = run(self.assistant.respond('s', 'Take me to the nearest supermarket', location=HERE))
+        self.assertIn('destination=37.765000', first['map_url'])
+        assistant = Assistant(self.assistant.memory, Orders(), navigator=self.assistant.navigator, geocode=no_such_place)
+        assistant.navigator._find_place = nothing_nearby
+        failed = run(assistant.respond('s', 'Take me to Atlantis', location=HERE))
+        self.assertIn('could not find', failed['say'])
+        self.assertIsNone(failed['map_url'])  # the old route is still running, but this is not its map
+
+    def test_a_far_away_place_is_found_on_the_whole_map(self):
+        async def nothing_nearby(term, lat, lon):
+            return None
+
+        async def whole_map(text, lat=None, lon=None):
+            return {'label': '161, Mission Falls Lane, Fremont', 'lat': 37.4845, 'lon': -121.9273}
+
+        assistant = Assistant(Memory(':memory:'), Orders(), navigator=Navigator(nothing_nearby, fake_route), geocode=whole_map)
+        reply = run(assistant.respond('s', 'Get directions to 161 Mission Falls Lane Fremont', location=HERE))
+        self.assertTrue(reply['navigating'])
+        self.assertIn('destination=37.484500,-121.927300', reply['map_url'])
+
     def test_directions_come_with_a_map_link(self):
         reply = run(self.assistant.respond('s', 'Take me to the nearest supermarket', location=HERE))
         self.assertTrue(reply['navigating'])

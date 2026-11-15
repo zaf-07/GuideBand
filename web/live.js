@@ -836,7 +836,9 @@
   setInterval(async () => {
     if (!online) return;
     try {
-      const heard = await call('/band/heard?after=' + Math.max(0, bandCursor));
+      // Only the page that is actually on screen takes the band's speech, so two open tabs do not both answer.
+      const mine = document.visibilityState === 'visible' ? '&client=' + session : '&client=idle-' + session;
+      const heard = await call('/band/heard?after=' + Math.max(0, bandCursor) + mine);
       showBandLive(heard.band);
       if (bandCursor < 0) { bandCursor = heard.last; return; } // ignore anything said before this page opened
       bandCursor = heard.last;

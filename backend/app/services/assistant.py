@@ -292,15 +292,17 @@ class Assistant:
         elif intent == 'timer':
             self._timer(reply, text)
         elif intent == 'place_go':
+            before = self.navigator.active(session)
             reply['say'] = await self._go_to_place(session, text, location)
             reply['navigating'] = self.navigator.active(session) is not None
-            reply['map_url'] = self._map_url(session, location)
+            reply['map_url'] = self._map_url(session, location, before)
         elif intent == 'nav_stop':
             reply['say'] = 'Navigation stopped.' if self.navigator.stop(session) else 'No navigation is running.'
         elif intent in ('navigate', 'go_back'):
+            before = self.navigator.active(session)
             reply['say'] = await self._navigate(session, intent, text, location)
             reply['navigating'] = self.navigator.active(session) is not None
-            reply['map_url'] = self._map_url(session, location)
+            reply['map_url'] = self._map_url(session, location, before)
         elif intent == 'bridge':
             reply['say'] = 'Bridge is on. I will speak signs I can read, and show what you say as large text.'
         elif intent == 'help':
@@ -505,10 +507,10 @@ class Assistant:
         about = f' to {label}' if label else ''
         reply['say'] = f'Timer set for {spoken_duration(seconds)}. I will remind you{about}.'
 
-    def _map_url(self, session: str, location: tuple[float, float] | None) -> str | None:
+    def _map_url(self, session: str, location: tuple[float, float] | None, before: dict | None = None) -> str | None:
         """A Google Maps walking route to the place being navigated to, for anyone who wants to see it."""
         active = self.navigator.active(session)
-        if active is None or location is None:
+        if active is None or location is None or active is before:
             return None
         return ('https://www.google.com/maps/dir/?api=1&travelmode=walking'
                 f'&origin={location[0]:.6f},{location[1]:.6f}&destination={active["lat"]:.6f},{active["lon"]:.6f}')
@@ -522,7 +524,17 @@ class Assistant:
                 if start is None or navigation.haversine(*location, start['lat'], start['lon']) < 40:
                     return 'You are still close to where you started.'
                 return await self.navigator.start_to(session, 'your starting point', *location, start['lat'], start['lon'])
-            return await self.navigator.start(session, text, *location)
+            try:
+                return await self.navigator.start(session, text, *location)
+            except navigation.NavigationError:
+                wanted = navigation.destination_query(text)[1]
+                try:
+                    found = await self.resolve_place(wanted, location)
+                except Exception:
+                    found = None
+                if found is None:
+                    raise
+                return await self.navigator.start_to(session, found['label'], *location, found['lat'], found['lon'])
         except navigation.NavigationError as error:
             return str(error)
 

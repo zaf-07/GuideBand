@@ -382,8 +382,17 @@ def band_heard_add(text: str = Form(..., min_length=1, max_length=300)):
 
 
 @app.get('/band/heard')
-def band_heard_list(after: int = 0):
-    return {'last': band_counter, 'items': [item for item in band_heard if item['id'] > after],
+def band_heard_list(after: int = 0, client: str = ''):
+    items = []
+    for item in band_heard:
+        if item['id'] <= after:
+            continue
+        if client:
+            owner = item.setdefault('client', client)  # the first page to ask handles the sentence
+            if owner != client:
+                continue
+        items.append({'id': item['id'], 'text': item['text']})
+    return {'last': band_counter, 'items': items,
             'band': {'connected': band_connected(), 'running': band_running(),
                      'name': band_state['name'], 'battery': band_state['battery']}}
 
