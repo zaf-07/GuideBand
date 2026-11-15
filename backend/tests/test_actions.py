@@ -124,6 +124,24 @@ class MessageTests(Offline):
         self.assertEqual(sent, [('14155550100', 'I am on my way')])
         self.assertEqual((reply['say'], reply['open_url']), ('Sent to Mom on WhatsApp.', None))
 
+    def test_desktop_sending_is_opt_in_and_falls_back(self):
+        pressed = []
+        async def desktop(phone, text):
+            pressed.append(phone)
+            return len(pressed) == 1  # the second attempt finds no WhatsApp window
+        self.memory.add_contact('Mom', '+14155550100')
+        assistant = Assistant(self.memory, Orders(), place_name=place, send_desktop=desktop)
+        from backend.app.services import messaging
+        with mock.patch.object(messaging, 'desktop_enabled', return_value=True), \
+             mock.patch.dict(os.environ, {'TWILIO_ACCOUNT_SID': '', 'TWILIO_AUTH_TOKEN': ''}):
+            run(assistant.respond('s', 'Text Mom saying hello'))
+            self.assertEqual(pressed, [])  # nothing before the yes
+            sent = run(assistant.respond('s', 'Yes'))
+            self.assertEqual((sent['say'], sent['open_url']), ('Sent to Mom on WhatsApp.', None))
+            run(assistant.respond('s', 'Text Mom saying hello again'))
+            fallback = run(assistant.respond('s', 'Yes'))
+            self.assertTrue(fallback['open_url'].startswith('https://wa.me/14155550100'))
+
     def test_dictated_message_and_cancel(self):
         self.memory.add_contact('Alex', '+14155550111')
         assistant = self.assistant()

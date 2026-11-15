@@ -254,9 +254,11 @@
     return item;
   }
 
+  let queued = '';
   async function ask(text) {
     text = text.trim();
-    if (!text || busy) return;
+    if (!text) return;
+    if (busy) { queued = text; return; }
     if (!online) { await checkService(); if (!online) return addMessage('error', 'I can’t reach the GuideBand service. Start it, then try again.'); }
     busy = true;
     addMessage('user', text);
@@ -297,6 +299,7 @@
       addMessage('error', error.message || 'Something went wrong.');
     }
     busy = false;
+    if (queued) { const next = queued; queued = ''; ask(next); }
   }
   el('askForm').onsubmit = e => { e.preventDefault(); const input = el('askInput'); ask(input.value); input.value = ''; };
   document.querySelectorAll('#live [data-say]').forEach(button => button.onclick = () => ask(button.dataset.say));
@@ -310,28 +313,44 @@
     el('micState').textContent = text;
     el('micState').dataset.state = kind;
   }
+  let interimTimer = null, handledText = '', handledAt = 0;
+  function heardNote(text, note) {
+    micState('Heard: “' + text + '”' + (note ? ' — ' + note : ''), 'on');
+  }
   function onInterim(text) {
-    if (!text || isSpeaking()) return;
+    clearTimeout(interimTimer);
+    if (!text) return;
     if (activeTab === 'bridge') el('bridgeCaption').textContent = text;
     else el('askInput').placeholder = 'Hearing: ' + text;
+    // In a noisy room the browser may never decide that the sentence has ended. Decide for it.
+    interimTimer = setTimeout(() => { handleSpeech(text); recognizer?.abort(); }, 1400);
   }
   function onFinal(text) {
+    clearTimeout(interimTimer);
+    handleSpeech(text);
+  }
+  function handleSpeech(text) {
     el('askInput').placeholder = micPlaceholder();
     if (!text) return;
+    const key = plain(text);
+    if (key === handledText && Date.now() - handledAt < 6000) return; // the same sentence, delivered twice
+    handledText = key; handledAt = Date.now();
+    if (isEcho(text)) return heardNote(text, 'ignored, that was my own voice');
     const wake = text.match(WAKE);
     const command = wake ? wake[1].trim() : '';
     if (activeTab === 'bridge') {
       // In a Bridge conversation everything said becomes text and signs for the other person.
-      if (isEcho(text)) return;
       showSpeech(text);
       if (command) ask(command);
       return;
     }
-    // "Guide, ..." always gets through, even while GuideBand is talking.
-    if (command) { stopSpeaking(); buzz(60); return ask(command); }
-    if (isSpeaking() || Date.now() - lastSpeechEnd < 1200 || isEcho(text)) return; // that was our own voice
-    if (!el('confirmBar').hidden && /^(yes|yeah|yep|no|nope|cancel)\b/i.test(text)) { buzz(60); return ask(text); }
-    if (!el('wakeToggle').checked && text.split(/\s+/).length >= 2) { buzz(60); ask(text); }
+    const answering = !el('confirmBar').hidden && /^(yes|yeah|yep|no|nope|cancel)\b/i.test(text);
+    if (command) { heardNote(text); stopSpeaking(); buzz(60); return ask(command); }
+    if (answering) { heardNote(text); stopSpeaking(); buzz(60); return ask(text); }
+    if (el('wakeToggle').checked) return heardNote(text, 'waiting for “Guide”');
+    if (text.split(/\s+/).length < 2) return heardNote(text, 'too short');
+    heardNote(text); stopSpeaking(); buzz(60);
+    ask(text);
   }
   const micPlaceholder = () => el('wakeToggle').checked ? 'Say “Guide, …” or type here' : 'Just talk, or type here';
   function startMic() {
@@ -355,7 +374,10 @@
     // The browser stops listening after a pause; start again so the microphone stays on.
     r.onend = () => { if (recognizer === r) recognizer = null; if (!micBlocked) setTimeout(startMic, 250); };
     recognizer = r;
-    try { r.start(); micState('Microphone on — listening', 'on'); } catch { recognizer = null; }
+    try {
+      r.start();
+      if (el('micState').dataset.state !== 'on') micState('Microphone on — listening', 'on'); // keep the last "Heard" note
+    } catch { recognizer = null; }
   }
   function stopMic() {
     const r = recognizer;
@@ -409,13 +431,18 @@
   let spellRun = 0;
   async function fingerspell(text) {
     const run = ++spellRun, strip = el('spellOut');
-    const words = text.toUpperCase().replace(/[^A-Z ]/g, '').split(/ +/).filter(Boolean).slice(0, 14);
+    const words = text.replace(/[^A-Za-z' ]/g, '').split(/ +/).filter(Boolean).slice(0, 14);
     strip.replaceChildren();
     for (const word of words) {
-      const group = document.createElement('span'); // letters of one word stay together when the row wraps
+      // Each word gets its own line: the word itself, then one handshape per letter.
+      const line = document.createElement('div'), label = document.createElement('span'), group = document.createElement('span');
+      line.className = 'spell-line';
+      label.className = 'spell-label';
+      label.textContent = word;
       group.className = 'spell-word';
-      strip.append(group);
-      for (const letter of word) {
+      line.append(label, group);
+      strip.append(line);
+      for (const letter of word.toUpperCase().replace(/[^A-Z]/g, '')) {
         if (run !== spellRun) return; // something newer was said
         const card = document.createElement('figure'), image = new Image(), caption = document.createElement('figcaption');
         card.className = 'spell-card';
@@ -426,9 +453,9 @@
         card.append(image, caption);
         group.append(card);
         strip.scrollTop = strip.scrollHeight;
-        await wait(330);
+        await wait(300);
       }
-      await wait(200);
+      await wait(250);
     }
   }
   // Big view to turn towards the other person: only what you said, as large as the screen allows.

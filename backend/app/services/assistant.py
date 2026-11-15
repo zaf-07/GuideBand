@@ -94,8 +94,9 @@ def message_body(text: str) -> str:
 
 class Assistant:
     def __init__(self, memory: Memory, orders: Orders, detector=None, navigator=None, place_name=None,
-                 read_frame=None, send_whatsapp=None) -> None:
+                 read_frame=None, send_whatsapp=None, send_desktop=None) -> None:
         self.send_whatsapp = send_whatsapp or messaging.send_whatsapp
+        self.send_desktop = send_desktop or messaging.send_desktop
         self.navigator = navigator or navigation.Navigator()
         self.place_name = place_name or navigation.place_name
         self.read_frame = read_frame or checkout.read_frame
@@ -239,7 +240,11 @@ class Assistant:
                 self.memory.add_note('message', f'Sent {message["name"]} a WhatsApp message: "{message["text"]}"')
                 return
             except messaging.MessageError:
-                pass  # fall back to the prepared chat below
+                pass  # fall back to the options below
+        if messaging.desktop_enabled() and await self.send_desktop(message['phone'], message['text']):
+            reply['say'] = f'Sent to {message["name"]} on WhatsApp.'
+            self.memory.add_note('message', f'Sent {message["name"]} a WhatsApp message: "{message["text"]}"')
+            return
         reply['open_url'] = message['url']
         reply['say'] = f'Your message to {message["name"]} is ready in WhatsApp.'
         self.memory.add_note('message', f'Prepared a WhatsApp message for {message["name"]}: "{message["text"]}"')

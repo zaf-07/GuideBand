@@ -148,3 +148,11 @@
 .facing-open .spell-card { width: clamp(90px, 11vw, 190px); padding: 1vw; border-radius: 1.4vw; }
 .facing-open .spell-card img { width: 100%; height: clamp(90px, 12vw, 200px); }
 .facing-open .spell-card figcaption { font-size: clamp(22px, 2.6vw, 44px); }
+
+/* Bridge: one spoken word per line */
+.spell { flex-direction: column; flex-wrap: nowrap; gap: 12px; }
+.spell-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.spell-label { min-width: 84px; font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
+.facing-open .spell { gap: 3vh; }
+.facing-open .spell-line { gap: 1vw 2.5vw; }
+.facing-open .spell-label { min-width: 16vw; color: #fff; font-size: clamp(34px, 5vw, 90px); }

@@ -76,7 +76,7 @@ def system_status():
         'memory': {'notes': len(memory.notes(1000)), 'objects': len(memory.sightings()), 'path_points': len(memory.path())},
         'navigation': {'maps': 'openstreetmap'},
         'speech': {'voice': 'elevenlabs' if speech.configured() else 'browser'},
-        'messages': {'whatsapp': 'direct' if messaging.configured() else 'opens_whatsapp'},
+        'messages': {'whatsapp': 'direct' if messaging.configured() else ('desktop_send' if messaging.desktop_enabled() else 'opens_whatsapp')},
     }
 
 @app.post('/commands/plan')

@@ -6,7 +6,11 @@ text prepared. Either way the assistant only calls this after a spoken yes.
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import subprocess
+import sys
+from urllib.parse import quote
 
 SANDBOX_NUMBER = '+14155238886'  # Twilio's shared WhatsApp sandbox sender
 
@@ -17,6 +21,35 @@ class MessageError(Exception):
 
 def configured() -> bool:
     return bool(os.getenv('TWILIO_ACCOUNT_SID') and os.getenv('TWILIO_AUTH_TOKEN'))
+
+
+def desktop_enabled() -> bool:
+    """Opt-in: let the service press Send in WhatsApp Desktop on this Windows computer."""
+    return sys.platform == 'win32' and os.getenv('WHATSAPP_DESKTOP_SEND', '').lower() in {'1', 'true', 'yes'}
+
+
+# Opens the chat with the text filled in, waits for the window, then presses Enter in it.
+# The key press only happens if a window titled "WhatsApp" could be brought to the front.
+_DESKTOP_SCRIPT = (
+    "Start-Process $env:GUIDEBAND_WA_URI; Start-Sleep -Milliseconds ([int]$env:GUIDEBAND_WA_DELAY); "
+    "$shell = New-Object -ComObject WScript.Shell; "
+    "if ($shell.AppActivate('WhatsApp')) { Start-Sleep -Milliseconds 600; $shell.SendKeys('{ENTER}'); 'sent' } else { 'no-window' }"
+)
+
+
+async def send_desktop(phone: str, text: str) -> bool:
+    """Send through the WhatsApp Desktop app the user is signed in to. True when Send was pressed."""
+    env = {**os.environ,
+           'GUIDEBAND_WA_URI': f'whatsapp://send?phone={phone}&text={quote(text)}',
+           'GUIDEBAND_WA_DELAY': os.getenv('WHATSAPP_SEND_DELAY_MS', '4000')}
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run, ['powershell', '-NoProfile', '-NonInteractive', '-Command', _DESKTOP_SCRIPT],
+            env=env, capture_output=True, text=True, timeout=40,
+        )
+    except Exception:
+        return False
+    return 'sent' in result.stdout
 
 
 async def send_whatsapp(phone: str, text: str) -> dict:

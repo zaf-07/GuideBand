@@ -66,9 +66,17 @@ window.GuideSigns = (() => {
   function readWord(p) {
     const s = handShape(p);
     const fingers = [s.index, s.middle, s.ring, s.pinky].filter(Boolean).length;
+    // Thumb and index fingertips touching, the other three fingers up.
+    if (dist(p[4], p[8]) < s.size * 0.3 && s.middle && s.ring && s.pinky) return 'OK';
     if (s.thumb && fingers === 4) return 'Hello';
+    if (!s.thumb && fingers === 4) return 'Four';
     if (s.thumb && s.index && s.pinky && !s.middle && !s.ring) return 'I love you';
+    if (s.thumb && s.pinky && !s.index && !s.middle && !s.ring) return 'Call me';
+    if (s.thumb && s.index && !s.middle && !s.ring && !s.pinky) return 'Later';
+    if (s.index && s.middle && s.ring && !s.pinky) return 'Water';
     if (s.index && s.middle && !s.ring && !s.pinky) return 'Peace';
+    if (s.index && !s.thumb && !s.middle && !s.ring && !s.pinky) return 'You';
+    if (s.pinky && !s.thumb && !s.index && !s.middle && !s.ring) return 'Me';
     if (s.thumb && fingers === 0) {
       if (p[4].y < p[2].y - s.size * 0.35) return 'Yes';
       if (p[4].y > p[2].y + s.size * 0.35) return 'No';
