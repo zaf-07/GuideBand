@@ -505,6 +505,7 @@ class Assistant:
         """Look the address up and read it back for a yes or no."""
         name = change['name']
         change['expires'] = time.time() + PLACE_CHANGE_TTL_SECONDS
+        change['query'] = address  # remembered, so the rest of a cut-off address can be added to it
         try:
             found = await self.resolve_place(address, location)
         except Exception:
@@ -544,6 +545,11 @@ class Assistant:
                 return await self.respond(session, text, None, 'image/jpeg', location)
             address = text.strip()[match.start(3):].strip(' .!?') if match else text.strip(' .!?')
             address = ADDRESS_LEAD.sub('', address).strip()  # "to San Francisco ..." -> "San Francisco ..."
+            # A word or two right after an offer is the end of the same address, cut off by a pause:
+            # "San Francisco Bay" ... "University".
+            if (change['stage'] == 'confirm' and change.get('query') and not match
+                    and len(address.split()) <= 3 and not re.search(r'\d', address)):
+                address = f"{change['query']} {address}"
             if not ADDRESS_LIKE.search(address) or FILLER.match(address.lower()):
                 # A stray fragment ("can you please", "get the") is not an address: do not look it up.
                 change['misses'] = change.get('misses', 0) + 1

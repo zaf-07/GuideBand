@@ -37,10 +37,10 @@ import guideband_vexo as bridge  # noqa: E402  (sets up the kit paths and loads 
 
 HEARTBEAT_SECONDS = 4
 RETRY_SECONDS = (4, 8, 12)  # pause after the first, second and later failed attempts
-QUIET_SECONDS = 1.6      # words unchanged for this long: the sentence is over
+QUIET_SECONDS = 1.9      # words unchanged for this long: the sentence is over
 MAX_SENTENCE_SECONDS = 9  # never wait longer than this before handing a sentence over
-FAST_QUIET_SECONDS = 1.0   # while the assistant is talking, so an interruption is noticed quickly
-FAST_MAX_SECONDS = 2.5
+FAST_QUIET_SECONDS = 1.4   # while the assistant is talking: a little quicker, but still let the user finish
+FAST_MAX_SECONDS = 7   # cutting sooner chopped requests in half
 
 
 def post(service: str, path: str, **fields) -> bool:

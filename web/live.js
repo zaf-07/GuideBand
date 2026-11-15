@@ -70,6 +70,9 @@
   const buzz = pattern => { try { navigator.vibrate?.(pattern); } catch {} };
   const player = new Audio();
   const isSpeaking = () => cloudPlaying || speechSynthesis.speaking;
+  let lastReplyEnd = 0;
+  /** True while a reply is being spoken (not a short hazard warning). */
+  const replyTalking = () => cloudPlaying || (replySpeaking && speechSynthesis.speaking);
   /** Tell the service the assistant is talking, so the band does not pass that voice back as a request. */
   let replySpeaking = false, bandMuted = false;
   // Once a second: mute the band only while a reply is really being spoken. The mute expires by itself
@@ -99,7 +102,7 @@
     const response = await fetch(api + '/speech', { method: 'POST', body });
     if (!response.ok) throw new Error('voice unavailable');
     const url = URL.createObjectURL(await response.blob());
-    const done = () => { cloudPlaying = false; lastSpeechEnd = Date.now(); URL.revokeObjectURL(url); if (bandMuted) { muteBand(false); bandMuted = false; } };
+    const done = () => { cloudPlaying = false; lastSpeechEnd = lastReplyEnd = Date.now(); URL.revokeObjectURL(url); if (bandMuted) { muteBand(false); bandMuted = false; } };
     player.onended = done;
     player.onerror = done;
     player.src = url;
@@ -111,7 +114,7 @@
     utterance.lang = 'en-US';
     utterance.rate = warning ? 1.08 : 1;
     utterance.onstart = () => { replySpeaking = !warning; };
-    utterance.onend = () => { lastSpeechEnd = Date.now(); if (replySpeaking && bandMuted) { muteBand(false); bandMuted = false; } replySpeaking = false; };
+    utterance.onend = () => { lastSpeechEnd = Date.now(); if (replySpeaking) lastReplyEnd = Date.now(); if (replySpeaking && bandMuted) { muteBand(false); bandMuted = false; } replySpeaking = false; };
     utterance.onerror = () => { replySpeaking = false; };
     speechSynthesis.speak(utterance);
   }
@@ -353,6 +356,7 @@
       enableLocation();
       return;
     }
+    awaitingAnswer = reply.intent === 'place_set'; // the assistant asked for an address, or to confirm one
     const item = addMessage('guide', reply.say, meta);
     speak(reply.say);
     el('confirmBar').hidden = !reply.confirm;
@@ -458,7 +462,7 @@
       else setZoom(1, true);
       return;
     }
-    if (source === 'band' && el('bargeToggle').checked && (isSpeaking() || Date.now() - lastSpeechEnd < 1500)) {
+    if (source === 'band' && el('bargeToggle').checked && (replyTalking() || Date.now() - lastReplyEnd < 1500)) {
       // The band heard this while the assistant was talking: keep only the words that are not the assistant's own.
       const mine = stripEcho(text);
       if (!mine) return heardNote(text, 'ignored, that was my own voice');
@@ -859,17 +863,30 @@
 
   // People pause in the middle of a request: "change my ... home address ... to ...". The band hands
   // each piece over separately, so a piece that plainly is not finished waits for the next one.
-  const UNFINISHED = /(?:\b(?:my|to|the|a|an|and|of|at|in|for|is|me|please|can|could|you|your|get|change|take|tell|set|buy|pay|where|what|how)|,)\s*$/i;
-  let heldPiece = '', heldTimer = null;
+  const UNFINISHED = /(?:\b(?:my|to|the|a|an|and|or|but|of|at|in|on|for|from|with|about|is|are|we|please|can|could|would|your|get|change|take|tell|set|buy|pay|show|find|give|where|what|how|near|nearest|closest|next)|,)\s*$/i;
+  // Short things that are complete on their own.
+  const SHORT_REQUEST = /^(?:yes|yeah|yep|no|nope|okay|ok|cancel|stop|help|pay|pay this|buy this|scan this|read this|read text|read the text|remember this|take me home|take me back|go back|go home|where am i|what is this|whats this|what's this|stop navigation|zoom in|zoom out|reset zoom|forget everything|thank you|thanks)\b[\s.!?]*$|^(?:yes|yeah|yep|no|nope|okay|ok|cancel|stop)\b.{0,24}$/i;
+  let heldPiece = '', heldTimer = null, awaitingAnswer = false;
   function bandPiece(text) {
     clearTimeout(heldTimer);
     const whole = (heldPiece + ' ' + text).trim();
     heldPiece = '';
-    if (UNFINISHED.test(whole) && whole.split(/\s+/).length <= 8) {
+    const words = whole.split(/\s+/).length;
+    // A yes or no, or an address, is expected right now: short answers are complete answers.
+    const answering = !el('confirmBar').hidden || awaitingAnswer;
+    const fragment = words <= 3 && !SHORT_REQUEST.test(whole) && !answering;
+    if ((UNFINISHED.test(whole) && words <= 10) || fragment) {
       heldPiece = whole;
       micState('Heard (through the Vexo band): “' + whole + '…”', 'on');
-      // If nothing follows, handle what there is rather than lose it.
-      heldTimer = setTimeout(() => { const rest = heldPiece; heldPiece = ''; if (rest) handleSpeech(rest, 'band'); }, 4000);
+      heldTimer = setTimeout(() => {
+        const rest = heldPiece;
+        heldPiece = '';
+        if (!rest) return;
+        // A proper sentence that merely trailed off is still handled. Two or three stray words are not:
+        // answering "can you show" or "change it" with a description of the room only gets in the way.
+        if (rest.split(/\s+/).length > 3) handleSpeech(rest, 'band');
+        else micState('Heard (through the Vexo band): “' + rest + '” — not enough to act on', 'on');
+      }, 4500);
       return;
     }
     handleSpeech(whole, 'band');

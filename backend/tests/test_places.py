@@ -135,6 +135,20 @@ class PlaceTests(unittest.TestCase):
         offer = self.ask('My address is 161 Mission Falls Lane Fremont')
         self.assertEqual(offer['confirm'], 'Save 161, Mission Falls Lane, Fremont as your home?')
 
+    def test_the_rest_of_a_cut_off_address_is_added_to_it(self):
+        asked = []
+
+        async def remember(text, lat=None, lon=None):
+            asked.append(text)
+            return HOME
+
+        assistant = Assistant(self.memory, Orders(), geocode=remember)
+        run(assistant.respond('s', 'Please change my home address to San Francisco Bay'))
+        run(assistant.respond('s', 'University'))            # the pause cut the name in two
+        self.assertEqual(asked[-1], 'San Francisco Bay University')
+        run(assistant.respond('s', '161 Mission Falls Lane Fremont'))   # a full address replaces it
+        self.assertEqual(asked[-1], '161 Mission Falls Lane Fremont')
+
     def test_work_address(self):
         self.ask('Set my work address to 1 Market Street San Francisco')
         self.ask('Yes')
