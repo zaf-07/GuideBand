@@ -30,7 +30,7 @@
       const detector = s.vision.detector.state === 'unavailable' ? 'detector unavailable' : 'on-device detector';
       const pay = s.payments.mode === 'stripe_test' ? 'Stripe test mode' : 'simulated payments';
       cloudVoice = Boolean(s.speech?.voice && s.speech.voice !== 'browser');
-      el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? 'ElevenLabs voice' : 'browser voice') + ' · ' + pay;
+      el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? ({ deepgram: 'Deepgram', elevenlabs: 'ElevenLabs', minimax: 'MiniMax' }[s.speech.voice] || 'cloud') + ' voice' : 'browser voice') + ' · ' + pay;
       el('liveDot').className = 'dot';
       if (s.wearable?.connected) el('liveStatus').textContent += ' · Vexo band on USB (' + s.wearable.ports.join(', ') + ')';
       el('qrLink').href = api + '/pay/qr.png?item=Coffee&amount=4.50';
