@@ -32,6 +32,7 @@
       cloudVoice = s.speech?.voice === 'elevenlabs';
       el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? 'ElevenLabs voice' : 'browser voice') + ' · ' + pay;
       el('liveDot').className = 'dot';
+      if (s.wearable?.connected) el('liveStatus').textContent += ' · Vexo band on USB (' + s.wearable.ports.join(', ') + ')';
       el('qrLink').href = api + '/pay/qr.png?item=Coffee&amount=4.50';
     } catch {
       online = false;
