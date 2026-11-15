@@ -857,6 +857,24 @@
     call('/memory/observe', { method: 'POST', body }).then(() => { if (activeTab === 'memory') loadMemory(); }).catch(() => {});
   }, 20000);
 
+  // People pause in the middle of a request: "change my ... home address ... to ...". The band hands
+  // each piece over separately, so a piece that plainly is not finished waits for the next one.
+  const UNFINISHED = /(?:\b(?:my|to|the|a|an|and|of|at|in|for|is|me|please|can|could|you|your|get|change|take|tell|set|buy|pay|where|what|how)|,)\s*$/i;
+  let heldPiece = '', heldTimer = null;
+  function bandPiece(text) {
+    clearTimeout(heldTimer);
+    const whole = (heldPiece + ' ' + text).trim();
+    heldPiece = '';
+    if (UNFINISHED.test(whole) && whole.split(/\s+/).length <= 8) {
+      heldPiece = whole;
+      micState('Heard (through the Vexo band): “' + whole + '…”', 'on');
+      // If nothing follows, handle what there is rather than lose it.
+      heldTimer = setTimeout(() => { const rest = heldPiece; heldPiece = ''; if (rest) handleSpeech(rest, 'band'); }, 4000);
+      return;
+    }
+    handleSpeech(whole, 'band');
+  }
+
   // ---------- Vexo band microphone ----------
   // The service keeps one permanent connection to the band. Sentences heard through it arrive here
   // and are handled like any other speech; while the band is connected the laptop microphone rests,
@@ -894,7 +912,7 @@
       showBandLive(heard.band);
       if (bandCursor < 0) { bandCursor = heard.last; return; } // ignore anything said before this page opened
       bandCursor = heard.last;
-      for (const item of heard.items) handleSpeech(item.text, 'band');
+      for (const item of heard.items) bandPiece(item.text);
     } catch {}
   }, 700);
   el('webBandListenBtn').onclick = async () => {

@@ -91,14 +91,15 @@ MESSAGE = re.compile(
 )
 LOOSE_MESSAGE = re.compile(r'\b(tell|text|message|whatsapp|write|send)\b')
 PLACE_NAMES = {'home': 'home', 'house': 'home', 'work': 'work', 'office': 'work', 'school': 'school', 'dorm': 'dorm'}
+_PLACE = r'(?:(home|house|work|office|school|dorm)(?: address| mattress| adress)?|address|adress)'
 PLACE_SET = re.compile(
-    r'\b(?:my (home|house|work|office|school|dorm)(?: address| mattress| adress)? is(?: at| in)?'
-    r'|(?:change|set|update|make|save|put) my (home|house|work|office|school|dorm)(?: address| mattress| adress)?(?: to| as| is| at)?'
+    r'\b(?:my ' + _PLACE + r' is(?: at| in)?'
+    r'|(?:change|changing|set|update|make|save|put) my ' + _PLACE + r'(?: to| as| is| at)?'
     r'|i live (?:at|in|on))\s+(.+?)[\s.!?]*$'
 )
-PLACE_ASK = re.compile(
-    r'\b(?:change|set|update|save|edit) my (home|house|work|office|school|dorm)(?: address| mattress| adress)?[\s.!?]*$'
-)
+PLACE_ASK = re.compile(r'\b(?:change|changing|set|update|save|edit) my ' + _PLACE + r'[\s.!?]*$')
+# Words that lead into an address but are not part of it.
+ADDRESS_LEAD = re.compile(r'^(?:(?:it is|it\'s|its|to|at|is|in|the address is|located in|located at)\s+)+', re.IGNORECASE)
 PLACE_CHANGE_TTL_SECONDS = 120
 # An address has a number in it, or at least two real words (a place name).
 ADDRESS_LIKE = re.compile(r'\d|[A-Za-z]{3,}\W+[A-Za-z]{3,}')
@@ -489,7 +490,7 @@ class Assistant:
         value = text.lower().strip()
         asked, match = PLACE_ASK.search(value), PLACE_SET.search(value)
         if asked:  # "change my home address", with nothing after it
-            name, address = PLACE_NAMES[asked.group(1)], ''
+            name, address = PLACE_NAMES[asked.group(1) or 'home'], ''
         else:
             name = PLACE_NAMES[match.group(1) or match.group(2) or 'home']
             address = text.strip()[match.start(3):].strip(' .!?')
@@ -542,6 +543,7 @@ class Assistant:
                 del self._place_changes[session]
                 return await self.respond(session, text, None, 'image/jpeg', location)
             address = text.strip()[match.start(3):].strip(' .!?') if match else text.strip(' .!?')
+            address = ADDRESS_LEAD.sub('', address).strip()  # "to San Francisco ..." -> "San Francisco ..."
             if not ADDRESS_LIKE.search(address) or FILLER.match(address.lower()):
                 # A stray fragment ("can you please", "get the") is not an address: do not look it up.
                 change['misses'] = change.get('misses', 0) + 1

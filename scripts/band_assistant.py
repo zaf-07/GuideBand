@@ -39,7 +39,7 @@ HEARTBEAT_SECONDS = 4
 RETRY_SECONDS = (4, 8, 12)  # pause after the first, second and later failed attempts
 QUIET_SECONDS = 1.6      # words unchanged for this long: the sentence is over
 MAX_SENTENCE_SECONDS = 9  # never wait longer than this before handing a sentence over
-FAST_QUIET_SECONDS = 0.7   # while the assistant is talking, so an interruption is noticed quickly
+FAST_QUIET_SECONDS = 1.0   # while the assistant is talking, so an interruption is noticed quickly
 FAST_MAX_SECONDS = 2.5
 
 
@@ -73,8 +73,8 @@ class Sentences:
         """Called by the speech service with everything said in the current sentence so far."""
         with self.lock:
             words = text.split()
-            if len(words) < self.sent:
-                self.sent = 0  # shorter than what was sent: the service began a new sentence
+            # The running text can shrink for a moment while the service revises a guess. Only a
+            # finished sentence (final) starts the count again; a shorter guess just has nothing new.
             fresh = ' '.join(words[self.sent:])
             if fresh != self.pending:
                 if not self.pending:
@@ -93,6 +93,11 @@ class Sentences:
             quiet, longest = (FAST_QUIET_SECONDS, FAST_MAX_SECONDS) if self.fast else (QUIET_SECONDS, MAX_SENTENCE_SECONDS)
             if now - self.changed >= quiet or now - self.started >= longest:
                 self._hand_over()
+
+    def reset(self) -> None:
+        """The service finished a sentence that was not handed over: start counting from nothing."""
+        with self.lock:
+            self.sent, self.pending = 0, ''
 
     def clear(self) -> None:
         """Forget what is waiting, without handing it over (used while the band is muted)."""
@@ -156,6 +161,8 @@ def session(transport: str, service: str, language: str, deadline: float) -> Non
 
         def on_text(value: str, is_final: bool) -> None:
             if muted.is_set():
+                if is_final:
+                    sentences.reset()  # keep the word count in step with the service
                 return
             sentences.heard(value, is_final)
 

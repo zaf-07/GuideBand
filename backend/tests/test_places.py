@@ -125,6 +125,16 @@ class PlaceTests(unittest.TestCase):
         offer = self.ask('Now change my home mattress to 161 Mission Falls Lane Fremont')
         self.assertIn('I found 161, Mission Falls Lane, Fremont', offer['say'])
 
+    def test_my_address_without_the_word_home(self):
+        self.assertEqual(route('change my address'), 'place_set')
+        self.assertEqual(route('Hello. Changing my address to San Francisco'), 'place_set')
+        self.assertIn('What is your home address?', self.ask('change my address')['say'])
+        offer = self.ask('to 161 Mission Falls Lane, Fremont')       # "to" leads in, it is not part of the address
+        self.assertIn('I found 161, Mission Falls Lane, Fremont', offer['say'])
+        self.ask('Cancel'); self.ask('Cancel')
+        offer = self.ask('My address is 161 Mission Falls Lane Fremont')
+        self.assertEqual(offer['confirm'], 'Save 161, Mission Falls Lane, Fremont as your home?')
+
     def test_work_address(self):
         self.ask('Set my work address to 1 Market Street San Francisco')
         self.ask('Yes')
