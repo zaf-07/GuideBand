@@ -464,14 +464,17 @@
     }
     if (source === 'band' && el('bargeToggle').checked && (replyTalking() || Date.now() - lastReplyEnd < 1500)) {
       // The band heard this while the assistant was talking: keep only the words that are not the assistant's own.
-      const mine = stripEcho(text);
+      // A bare "yes" or "no" is the user answering. The assistant never says just that on its own:
+      // its own voice comes back as a whole sentence ("say yes to send, or no to cancel").
+      const answer = /^(?:yes|yeah|yep|yup|no|nope|cancel|okay|ok|sure|correct|right)(?: (?:please|pay|send|send it|do it|change it|save it|thanks))?$/.test(plain(text));
+      const mine = answer ? plain(text) : stripEcho(text);
       if (!mine) return heardNote(text, 'ignored, that was my own voice');
       if (/^(stop|quiet|enough|wait|shut up|be quiet)$/.test(mine)) { // just silence, not a new request
         heardNote(text); stopSpeaking(); buzz(60);
         return;
       }
       text = mine;
-    } else if (isEcho(text, source)) return heardNote(text, 'ignored, that was my own voice');
+    } else if (!/^(?:yes|yeah|yep|yup|no|nope|cancel|okay|ok)$/.test(plain(text)) && isEcho(text, source)) return heardNote(text, 'ignored, that was my own voice');
     // The browser's recogniser can deliver one sentence twice within a moment; the band never does.
     // A sentence the user deliberately repeats must always get through.
     const key = plain(text);
