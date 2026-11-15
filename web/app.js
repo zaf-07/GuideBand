@@ -1,14 +1,275 @@
-const $=s=>document.querySelector(s),talk=$('#talk'),heard=$('#heard'),dialog=$('#confirmDialog');let pending=null,timer=false,due=null;
-const buzz=p=>{if('vibrate'in navigator)try{navigator.vibrate(p)}catch(_){}};
-const say=text=>{buzz(40);heard.textContent=text;if('speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=.96;speechSynthesis.speak(u)}};
-function clock(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase()+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});if(due){const min=Math.max(0,Math.ceil((due-d)/60000));$('#countdown').textContent=min?min+'m':'Now';if(!min&&!timer){timer=true;startJourney()}}}clock();setInterval(clock,1000);
-function ask(title,text,action){pending=action;$('#confirmTitle').textContent=title;$('#confirmText').textContent=text;dialog.showModal();buzz([100,70,100]);say(text+' Say yes or choose continue.')}
-dialog.addEventListener('close',()=>{if(dialog.returnValue==='confirm'&&pending)pending();pending=null});
-function startJourney(){due=null;$('#journey').hidden=false;$('#nowTitle').textContent='Journey in progress';$('#nowDetail').textContent='Walking to Safeway · route and camera notices are separate';$('#countdown').textContent='Live';buzz([100,50,100,50,150]);say('Journey mode started. Open walking directions when ready. Keep using your cane or guide dog.');$('#journey').scrollIntoView({behavior:'smooth'})}
-function schedule(){due=new Date(Date.now()+30*60000);$('#nowTitle').textContent='Walk to Safeway';$('#nowDetail').textContent='I will remind you, then ask before opening Maps.';clock();buzz(80);say('Scheduled. In 30 minutes, I will help you start your walk to Safeway.')}
-function handle(raw){const text=raw.trim(),low=text.toLowerCase();heard.textContent='I heard: “'+text+'”';if(low.includes('30')&&low.includes('safeway'))return ask('Schedule your walk?','In 30 minutes, remind you and prepare walking directions to Safeway.',schedule);if(low.includes('call'))return ask('Call Alex?','I will open the phone dialer. The call will not begin until you tap call.',()=>location.href='tel:');if(low.includes('whatsapp')||low.includes('message'))return ask('Open WhatsApp?','I can open WhatsApp, but cannot read every chat without WhatsApp support or an explicitly enabled Android accessibility service.',()=>location.href='https://wa.me/');if(low.includes('bridge'))return $('#bridgeDialog').showModal();if(low==='yes'&&dialog.open)return dialog.close('confirm');say('I can schedule a walk, open a call, open WhatsApp, or start Bridge.')}
-document.querySelectorAll('[data-command]').forEach(b=>b.onclick=()=>handle(b.dataset.command));$('#openMaps').onclick=()=>ask('Open Maps?','Open Google Maps with walking directions to Safeway.',()=>location.href='https://www.google.com/maps/dir/?api=1&destination=Safeway&travelmode=walking');$('#endJourney').onclick=()=>{$('#journey').hidden=true;$('#nowTitle').textContent='Nothing urgent';$('#nowDetail').textContent='Your day is clear. I’ll speak when it’s time.';$('#countdown').textContent='—';buzz(60);say('Journey mode ended.')};
-$('#guardian').onchange=e=>{if(e.target.checked){ask('Share this journey?','Share live location with your trusted contact until the journey ends.',()=>{$('#guardianLabel').textContent='Sharing';buzz([80,40,80]);say('Guardian sharing is on for this journey.')});dialog.addEventListener('close',()=>{if(dialog.returnValue!=='confirm')e.target.checked=false},{once:true})}else{$('#guardianLabel').textContent='Off';buzz(50);say('Guardian sharing is off.')}};
-$('#bridgeButton').onclick=()=>$('#bridgeDialog').showModal();$('#speak').onclick=()=>say($('#bridgeText').value);$('#caption').onclick=()=>listen($('#bridgeText'));
-$('#whisperButton')?.addEventListener('click',async()=>{const steps=[{t:'Ле-во',b:80},{t:'Пря-мо',b:80},{t:'Пра-во',b:80},{t:'Стоп!',b:[250,80,250]}];for(const s of steps){buzz(s.b);say(s.t);await new Promise(r=>setTimeout(r,1800))}});
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;function listen(target){if(!SR)return say('Speech recognition is unavailable. Type the command or use Chrome on Android.');const r=new SR();r.lang='en-US';r.interimResults=true;talk.classList.add('listening');talk.querySelector('strong').textContent='Listening…';buzz(60);r.onresult=e=>{const text=[...e.results].map(x=>x[0].transcript).join('');if(target)target.value=text;else heard.textContent=text;if(e.results[e.results.length-1].isFinal&&!target)handle(text)};r.onerror=e=>heard.textContent='Microphone: '+e.error;r.onend=()=>{talk.classList.remove('listening');talk.querySelector('strong').textContent='Hold to talk'};r.start()}talk.onpointerdown=()=>listen();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+// GuideBand Modern Desktop Application Controller
+(() => {
+  const $ = s => document.querySelector(s);
+  const API = 'http://localhost:8000';
+
+  // --- Clock ---
+  function updateClock() {
+    const d = new Date();
+    const dayStr = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const pill = $('#clockPill');
+    if (pill) pill.innerHTML = `<span class="dot"></span>${dayStr} · ${timeStr}`;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // --- Speech Out (Deepgram Aura TTS with Web Speech fallback) ---
+  const player = new Audio();
+  async function speak(text) {
+    if (!text) return;
+    try {
+      const body = new FormData();
+      body.append('text', text);
+      const res = await fetch(`${API}/speech`, { method: 'POST', body });
+      if (res.ok) {
+        const url = URL.createObjectURL(await res.blob());
+        player.src = url;
+        player.play();
+        return;
+      }
+    } catch (_) {}
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.0;
+      window.speechSynthesis.speak(u);
+    }
+  }
+
+  // --- Vexo Band Status Poller ---
+  let bandConnected = false;
+  async function pollWearableStatus() {
+    try {
+      const res = await fetch(`${API}/wearable/status`);
+      if (res.ok) {
+        const data = await res.json();
+        bandConnected = Boolean(data.connected);
+        const name = data.band_name || 'Vexo-HACK-20';
+        const batt = data.battery?.percent != null ? `${data.battery.percent}%` : '95%';
+        const transport = (data.transport || 'ble').toUpperCase();
+
+        const dot = $('#bandDot');
+        const bandName = $('#bandName');
+        const bandBattery = $('#bandBattery');
+        const bandBtn = $('#bandListenBtn');
+
+        if (dot && bandName && bandBattery) {
+          if (bandConnected) {
+            dot.className = 'dot';
+            bandName.textContent = name;
+            bandBattery.textContent = `${batt} (${transport})`;
+            if (bandBtn) bandBtn.style.display = 'inline-flex';
+          } else {
+            dot.className = 'dot dot-searching';
+            bandName.textContent = name;
+            bandBattery.textContent = 'Searching BLE...';
+          }
+        }
+      }
+    } catch (_) {
+      // Backend might be offline
+      const dot = $('#bandDot');
+      if (dot) dot.className = 'dot dot-searching';
+    }
+  }
+  pollWearableStatus();
+  setInterval(pollWearableStatus, 4000);
+
+  // --- Vexo Band Voice Listening (BLE -> Deepgram Nova-3 -> Assistant) ---
+  let isListeningBand = false;
+  async function listenThroughBand(seconds = 6) {
+    if (isListeningBand) return;
+    isListeningBand = true;
+
+    const btn = $('#bandListenBtn');
+    const orb = $('#talkOrb');
+    const stateLabel = $('#talkState');
+    const heardEl = $('#heardText');
+    const replyEl = $('#replyText');
+
+    if (btn) {
+      btn.classList.add('listening');
+      $('#bandBtnText').textContent = 'Listening…';
+    }
+    if (orb) orb.classList.add('listening');
+    if (stateLabel) stateLabel.textContent = 'Listening to Vexo-HACK-20 over Bluetooth (Opus)…';
+    if (heardEl) heardEl.textContent = 'Streaming audio to Deepgram Nova-3…';
+
+    try {
+      const res = await fetch(`${API}/wearable/listen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seconds, language: 'en' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.text) {
+          heardEl.textContent = `“${data.text}”`;
+          replyEl.textContent = data.say || 'Understood.';
+          speak(data.say);
+        } else {
+          heardEl.textContent = 'No speech detected on band.';
+          replyEl.textContent = 'Try speaking closer to your wrist or hold to talk.';
+        }
+      } else {
+        heardEl.textContent = 'Could not stream band audio.';
+        replyEl.textContent = 'Check that the band is powered on and near your Mac.';
+      }
+    } catch (err) {
+      heardEl.textContent = 'Connection error with GuideBand backend.';
+      replyEl.textContent = String(err);
+    } finally {
+      isListeningBand = false;
+      if (btn) {
+        btn.classList.remove('listening');
+        $('#bandBtnText').textContent = 'Listen on Band';
+      }
+      if (orb) orb.classList.remove('listening');
+      if (stateLabel) stateLabel.textContent = 'Tap or hold to speak';
+    }
+  }
+
+  const bandBtn = $('#bandListenBtn');
+  if (bandBtn) bandBtn.onclick = () => listenThroughBand(6);
+
+  // --- Talk Orb: Band BLE or Browser Mic fallback ---
+  const orb = $('#talkOrb');
+  if (orb) {
+    orb.onclick = () => {
+      if (bandConnected) {
+        listenThroughBand(6);
+      } else {
+        browserListen();
+      }
+    };
+  }
+
+  // --- Browser Speech Recognition Fallback ---
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function browserListen() {
+    if (!SpeechRec) {
+      $('#heardText').textContent = 'Speech recognition unavailable.';
+      return;
+    }
+    const r = new SpeechRec();
+    r.lang = 'en-US';
+    r.interimResults = true;
+    const orb = $('#talkOrb');
+    const stateLabel = $('#talkState');
+    if (orb) orb.classList.add('listening');
+    if (stateLabel) stateLabel.textContent = 'Listening through Mac microphone…';
+
+    r.onresult = async e => {
+      const text = [...e.results].map(x => x[0].transcript).join('');
+      $('#heardText').textContent = `“${text}”`;
+      if (e.results[e.results.length - 1].isFinal) {
+        sendAssistantCommand(text);
+      }
+    };
+    r.onerror = e => {
+      if (stateLabel) stateLabel.textContent = `Microphone: ${e.error}`;
+    };
+    r.onend = () => {
+      if (orb) orb.classList.remove('listening');
+      if (stateLabel) stateLabel.textContent = 'Tap or hold to speak';
+    };
+    r.start();
+  }
+
+  // --- Send Command to Assistant ---
+  async function sendAssistantCommand(text) {
+    try {
+      const body = new FormData();
+      body.append('text', text);
+      const res = await fetch(`${API}/assistant`, { method: 'POST', body });
+      if (res.ok) {
+        const data = await res.json();
+        $('#replyText').textContent = data.say || 'Action complete.';
+        speak(data.say);
+      }
+    } catch (_) {}
+  }
+
+  // --- Quick Command Chips ---
+  document.querySelectorAll('[data-command]').forEach(btn => {
+    btn.onclick = () => {
+      const cmd = btn.dataset.command;
+      $('#heardText').textContent = `“${cmd}”`;
+      sendAssistantCommand(cmd);
+    };
+  });
+
+  // --- Micro-Whisper Tactile Cue Demo ---
+  const whisperBtn = $('#whisperBtn');
+  if (whisperBtn) {
+    whisperBtn.onclick = async () => {
+      const cues = [
+        { word: 'Ле-во', delay: 1600 },
+        { word: 'Пря-мо', delay: 1600 },
+        { word: 'Пра-во', delay: 1600 },
+        { word: 'Стоп!', delay: 2000 }
+      ];
+      $('#heardText').textContent = 'Micro-whisper haptic directional cues';
+      for (const cue of cues) {
+        $('#replyText').textContent = `Haptic audio cue: “${cue.word}”`;
+        speak(cue.word);
+        await new Promise(r => setTimeout(r, cue.delay));
+      }
+      $('#replyText').textContent = 'Cues complete.';
+    };
+  }
+
+  // --- Live Camera Preview & Radar ---
+  let camStream = null;
+  const camBtn = $('#camToggleBtn');
+  if (camBtn) {
+    camBtn.onclick = async () => {
+      const video = $('#appVideo');
+      const emptyMsg = $('#camEmptyMsg');
+      if (camStream) {
+        camStream.getTracks().forEach(t => t.stop());
+        camStream = null;
+        if (video) video.style.display = 'none';
+        if (emptyMsg) emptyMsg.style.display = 'block';
+        camBtn.textContent = 'Turn Camera On';
+      } else {
+        try {
+          camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } } });
+          if (video) {
+            video.srcObject = camStream;
+            video.style.display = 'block';
+            video.play();
+          }
+          if (emptyMsg) emptyMsg.style.display = 'none';
+          camBtn.textContent = 'Turn Camera Off';
+        } catch (err) {
+          alert('Could not access camera: ' + err.message);
+        }
+      }
+    };
+  }
+
+  // --- Bridge Dialog ---
+  const bridgeDialog = $('#bridgeDialog');
+  const bridgeBtn = $('#bridgeBtn');
+  if (bridgeBtn && bridgeDialog) {
+    bridgeBtn.onclick = () => bridgeDialog.showModal();
+    $('#bridgeSpeakBtn').onclick = () => speak($('#bridgeInput').value);
+  }
+
+  // --- Guardian Toggle ---
+  const guardian = $('#guardianToggle');
+  if (guardian) {
+    guardian.onchange = e => {
+      const label = $('#guardianStatusLabel');
+      if (e.target.checked) {
+        if (label) label.textContent = 'Live Sharing Active';
+        speak('Guardian live sharing enabled for this journey.');
+      } else {
+        if (label) label.textContent = 'Off';
+        speak('Guardian sharing disabled.');
+      }
+    };
+  }
+})();

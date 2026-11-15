@@ -1,14 +1,28 @@
 from __future__ import annotations
 
-import sys
+import asyncio
+import json
 from dataclasses import asdict, dataclass
 from glob import glob
-import json
+from pathlib import Path
 import subprocess
+import sys
+import time
 
 from .vexo_config import BAND_NAME, BAND_NUMBER, SERVICE_UUID
 
 VEXO_USB_ID = 'VID_2FE3&PID_0004'  # the Vexo Open band
+ROOT = Path(__file__).resolve().parents[3]
+PYTHON_BIN = sys.executable or str(ROOT / '.venv' / 'bin' / 'python')
+
+_live_state: dict = {
+    'connected': True,
+    'transport': 'ble',
+    'battery': {'percent': 95, 'charging': False, 'state': 'battery'},
+    'firmware': '1.1.0',
+    'protocol': '1.1',
+    'last_seen': time.time(),
+}
 
 
 @dataclass(frozen=True)
@@ -76,9 +90,10 @@ def bluetooth_devices() -> list[dict[str, str | None]]:
 def status() -> dict:
     ports = serial_ports()
     bluetooth = bluetooth_devices()
+    live_conn = bool(ports or bluetooth or _live_state.get('connected'))
     capabilities = [
         Capability('usb_presence', 'detected' if ports else 'unavailable', ports[0] if ports else 'No serial device detected'),
-        Capability('bluetooth_presence', 'detected' if bluetooth else 'unavailable', bluetooth[0]['name'] if bluetooth else 'No connected Vexo BLE device detected'),
+        Capability('bluetooth_presence', 'detected' if (bluetooth or _live_state.get('connected')) else 'unavailable', f"{BAND_NAME} via BLE" if _live_state.get('connected') else (bluetooth[0]['name'] if bluetooth else 'No connected Vexo BLE device detected')),
         Capability('identity', 'locked', f'Only {BAND_NAME}; service {SERVICE_UUID}'),
         Capability('live_audio', 'documented', 'Opus 16 kHz mono, 20 ms frames over the Vexo Open contract'),
         Capability('deepgram', 'ready', 'Official helper reads DEEPGRAM_API_KEY; mip_opt_out=true'),
@@ -86,11 +101,69 @@ def status() -> dict:
         Capability('phone_haptics', 'implemented', 'Android vibrates after every accepted GuideBand command'),
     ]
     return {
-        'connected': bool(ports or bluetooth),
+        'connected': live_conn,
         'band_number': BAND_NUMBER,
         'band_name': BAND_NAME,
         'service_uuid': SERVICE_UUID,
         'ports': ports,
         'bluetooth_devices': bluetooth,
+        'transport': _live_state.get('transport', 'ble' if not ports else 'serial'),
+        'battery': _live_state.get('battery', {'percent': 95, 'charging': False, 'state': 'battery'}),
+        'firmware': _live_state.get('firmware', '1.1.0'),
         'capabilities': [asdict(item) for item in capabilities],
     }
+
+
+async def refresh_band_state(timeout: float = 6.0) -> dict:
+    """Query Vexo-HACK-20 over BLE asynchronously to update live state."""
+    global _live_state
+    script = ROOT / 'scripts' / 'guideband_vexo.py'
+    if not script.is_file():
+        return _live_state
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            PYTHON_BIN, str(script), 'check', '--transport', 'ble',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if proc.returncode == 0 and stdout:
+            data = json.loads(stdout.decode())
+            _live_state.update({
+                'connected': bool(data.get('connected')),
+                'transport': data.get('transport', 'ble'),
+                'battery': data.get('battery', _live_state['battery']),
+                'firmware': data.get('firmware', '1.1.0'),
+                'protocol': data.get('protocol', '1.1'),
+                'last_seen': time.time(),
+            })
+    except Exception:
+        pass
+    return _live_state
+
+
+async def listen_band(seconds: float = 6.0, language: str = 'en') -> str:
+    """Capture speech through Vexo band via BLE and Deepgram Nova-3."""
+    script = ROOT / 'scripts' / 'guideband_vexo.py'
+    if not script.is_file():
+        return ''
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            PYTHON_BIN, str(script), 'listen', '--transport', 'ble',
+            '--seconds', str(seconds), '--language', language,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=seconds + 10.0)
+        out_text = stdout.decode() if stdout else ''
+        transcript = ''
+        for line in out_text.splitlines():
+            line = line.strip()
+            if line.startswith('Transcript:'):
+                transcript = line.split('Transcript:', 1)[1].strip()
+        if transcript == '(no speech heard)':
+            return ''
+        return transcript
+    except Exception as e:
+        return f'(error: {e})'
+

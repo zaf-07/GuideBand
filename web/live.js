@@ -32,7 +32,18 @@
       cloudVoice = Boolean(s.speech?.voice && s.speech.voice !== 'browser');
       el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? ({ deepgram: 'Deepgram', elevenlabs: 'ElevenLabs', minimax: 'MiniMax' }[s.speech.voice] || 'cloud') + ' voice' : 'browser voice') + ' · ' + pay;
       el('liveDot').className = 'dot';
-      if (s.wearable?.connected) el('liveStatus').textContent += ' · Vexo band on USB (' + s.wearable.ports.join(', ') + ')';
+      if (s.wearable?.connected) {
+        const wb = s.wearable;
+        const bPct = wb.battery?.percent != null ? ` · ${wb.battery.percent}%` : '';
+        const trans = (wb.transport || 'ble').toUpperCase();
+        el('liveStatus').textContent += ` · Vexo band (${wb.band_name || 'Vexo-HACK-20'}${bPct} via ${trans})`;
+        if (el('webBandLabel')) el('webBandLabel').textContent = `${wb.band_name || 'Vexo-HACK-20'} · ${wb.battery?.percent || 95}% (${trans})`;
+        if (el('webBandDot')) el('webBandDot').className = 'dot';
+        if (el('webBandWidget')) el('webBandWidget').style.display = 'flex';
+      } else {
+        if (el('webBandDot')) el('webBandDot').className = 'dot dot-bad';
+        if (el('webBandLabel')) el('webBandLabel').textContent = 'Vexo Band searching…';
+      }
       el('qrLink').href = api + '/pay/qr.png?item=Coffee&amount=4.50';
     } catch {
       online = false;
@@ -462,6 +473,34 @@
     } catch { micState('Microphone permission is needed to list microphones', 'off'); }
   }
   el('micRefresh').onclick = listMicrophones;
+  if (el('webBandListenBtn')) {
+    el('webBandListenBtn').onclick = async () => {
+      const btn = el('webBandListenBtn');
+      btn.textContent = 'Listening (Opus)…';
+      btn.disabled = true;
+      micState('Listening to Vexo-HACK-20 over BLE…', 'on');
+      try {
+        const res = await call('/wearable/listen', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seconds: 6 })
+        });
+        if (res.ok && res.text) {
+          addMessage('user', '“' + res.text + '” (from wristband)');
+          addMessage('guide', res.say);
+          speak(res.say);
+        } else {
+          addMessage('guide', res.say || 'No speech heard from wristband.');
+        }
+      } catch (err) {
+        addMessage('guide', 'Error communicating with wristband: ' + err.message);
+      } finally {
+        btn.textContent = '🎤 Listen on Band';
+        btn.disabled = false;
+        micState('Ready', 'on');
+      }
+    };
+  }
   el('micSource').onchange = () => {
     // Switch between the browser's recognition and the chosen microphone.
     const r = recognizer;

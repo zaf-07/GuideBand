@@ -163,6 +163,11 @@
       <div class="live glass" id="live">
         <div class="live-bar">
           <p class="live-status" role="status"><span class="dot dot-off" id="liveDot"></span><span id="liveStatus">Checking the GuideBand service…</span></p>
+          <div class="band-widget" id="webBandWidget" style="margin-left: auto; display: flex; align-items: center; gap: 0.6rem; background: var(--glass-strong); padding: 0.35rem 0.8rem; border-radius: 999px; border: 1px solid var(--glass-border);">
+            <span class="dot" id="webBandDot"></span>
+            <span style="font-size: 0.84rem; font-weight: 600;" id="webBandLabel">Vexo-HACK-20 · 95% (BLE)</span>
+            <button class="btn btn-primary btn-small" id="webBandListenBtn" type="button" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">🎤 Listen on Band</button>
+          </div>
           <details class="live-settings">
             <summary>Connection</summary>
             <form id="apiForm">

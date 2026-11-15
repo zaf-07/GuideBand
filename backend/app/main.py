@@ -18,7 +18,7 @@ from .services import bridge, checkout, llm, messaging, navigation, speech, visi
 from .services.assistant import Assistant
 from .services.memory import Memory
 from .services.payments import CATALOGUE, Orders, is_test_key, money
-from .services.wearable import status as wearable_status
+from .services.wearable import status as wearable_status, listen_band, refresh_band_state
 
 load_env()
 
@@ -250,6 +250,35 @@ async def events(ws: WebSocket):
     await ws.accept();await ws.send_json({'event':'connected','timestamp':now()})
     while True:
         message=await ws.receive_text();await ws.send_json({'event':'ack','message':message,'timestamp':now()})
+
+# ---------- Wearable / Vexo Band ----------
+
+@app.get('/wearable/status')
+def get_wearable_status():
+    return wearable_status()
+
+@app.post('/wearable/refresh')
+async def post_wearable_refresh():
+    await refresh_band_state()
+    return wearable_status()
+
+class WearableListenRequest(BaseModel):
+    seconds: float = 6.0
+    language: str = 'en'
+
+@app.post('/wearable/listen')
+async def post_wearable_listen(req: WearableListenRequest = WearableListenRequest()):
+    transcript = await listen_band(seconds=req.seconds, language=req.language)
+    if not transcript:
+        return {'ok': False, 'text': '', 'say': 'No speech heard from the band.', 'action': None}
+    reply = await assistant.respond('wearable', transcript, None, 'image/jpeg', None)
+    return {
+        'ok': True,
+        'text': transcript,
+        'say': reply.get('say', ''),
+        'action': reply.get('action'),
+        'data': reply.get('data'),
+    }
 
 # Serve the web app from the same origin, so one address (and one HTTPS
 # certificate or tunnel) covers both the page and the API on a phone.
