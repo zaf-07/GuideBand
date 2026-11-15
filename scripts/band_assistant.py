@@ -52,6 +52,17 @@ def post(service: str, path: str, **fields) -> bool:
         return False
 
 
+def key_terms(service: str) -> list[str]:
+    """Words the speech service should expect: contact names and the assistant's own vocabulary."""
+    terms = ['GuideBand', 'WhatsApp', 'supermarket', 'home address']
+    try:
+        with urllib.request.urlopen(service + '/contacts', timeout=3) as response:
+            terms = [contact['name'] for contact in json.load(response)] + terms
+    except Exception:
+        pass
+    return terms[:25]
+
+
 class Sentences:
     """Turns the speech service's running text into separate sentences, handed over promptly.
 
@@ -169,7 +180,11 @@ def session(transport: str, service: str, language: str, deadline: float) -> Non
         ears = None
         while ears is None:
             try:
-                ears = speech.create(language=language, endpointing=300).start(on_text)
+                ears = speech.create(language=language, endpointing=300)
+                # Names are what speech recognition gets wrong most ("Tim" as "team", "Zack" as "that").
+                # Deepgram listens for words it is told to expect, so give it the contacts and a few terms.
+                ears.query = list(ears.query.items()) + [('keyterm', term) for term in key_terms(service)]
+                ears = ears.start(on_text)
             except Exception as problem:  # refused or unreachable: the band itself is fine, so keep it
                 print('Speech service not ready, trying again:', str(problem).splitlines()[0][:120], flush=True)
                 post(service, '/band/state', connected='true', name=band.name, battery=battery)

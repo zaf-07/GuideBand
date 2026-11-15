@@ -149,6 +149,31 @@ class PlaceTests(unittest.TestCase):
         run(assistant.respond('s', '161 Mission Falls Lane Fremont'))   # a full address replaces it
         self.assertEqual(asked[-1], '161 Mission Falls Lane Fremont')
 
+    def test_a_message_that_mentions_home_is_still_a_message(self):
+        self.memory.add_contact('Tim', '+14155550100')
+        self.memory.add_contact('Zack', '+14155550101')
+        self.memory.save_place('home', 'Somewhere', 37.5, -121.9)
+        draft = self.ask('Nice. Nice. Now message Zach that I am going home right now.', location=HERE)
+        self.assertEqual(draft['intent'], 'message')
+        self.assertEqual(draft['confirm'], 'Send to Zack on WhatsApp?')
+        self.assertIn('I am going home right now', draft['say'])
+        self.ask('No')
+        location = self.ask('Send my location team.', location=HERE)       # "team" is how "Tim" is often heard
+        self.assertEqual(location['confirm'], 'Send to Tim on WhatsApp?')
+        self.ask('No')
+        self.assertEqual(self.ask('Take me home', location=HERE)['intent'], 'place_go')   # no contact named: directions
+
+    def test_chatter_around_an_address_is_dropped(self):
+        from backend.app.services.assistant import spoken_place
+        self.assertEqual(spoken_place('Yeah. Yeah. Search it. Francisco Bay University, Fremont, Mission Falls Lane. Should be there.'),
+                         'Francisco Bay University, Fremont, Mission Falls Lane')
+        self.assertEqual(spoken_place('161 Mission Falls Lane, Fremont'), '161 Mission Falls Lane, Fremont')
+
+    def test_yes_anywhere_in_a_short_reply_confirms_the_address(self):
+        self.ask('Change my home address to 161 Mission Falls Lane Fremont')
+        saved = self.ask('change it yes change it')
+        self.assertEqual(saved['intent'], 'place_saved')
+
     def test_work_address(self):
         self.ask('Set my work address to 1 Market Street San Francisco')
         self.ask('Yes')

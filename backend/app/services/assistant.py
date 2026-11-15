@@ -101,11 +101,27 @@ PLACE_ASK = re.compile(r'\b(?:change|changing|set|update|save|edit) my ' + _PLAC
 # Words that lead into an address but are not part of it.
 ADDRESS_LEAD = re.compile(r'^(?:(?:it is|it\'s|its|to|at|is|in|the address is|located in|located at)\s+)+', re.IGNORECASE)
 PLACE_CHANGE_TTL_SECONDS = 120
+# Chatter around an address: "Yeah. Yeah. Search it. <address>. Should be there."
+_LEAD_FILLER = re.compile(r"^(?:yeah|yes|yep|no|nope|okay|ok|hello|hi|hey|now|please|thanks|thank you|search it|find it|change it|look it up|i said|i mean)[\s.,!?]*$", re.IGNORECASE)
+_TAIL_FILLER = re.compile(r"^(?:(?:it )?should be there|i think|please|right now|thank you|thanks|that is it|that's it|okay|ok)[\s.,!?]*$", re.IGNORECASE)
+# In the middle of confirming an address, these mean yes wherever they fall in a short reply.
+CONFIRM_ANY = re.compile(r"\b(?:yes|yeah|yep|correct|right|save it|change it|do it|confirm|that's it|that is it)\b")
+
+
+def spoken_place(text: str) -> str:
+    """The place inside a spoken sentence, with the chatter before and after it removed."""
+    parts = [part for part in re.split(r'(?<=[.!?])\s+', text.strip()) if part.strip()]
+    while parts and _LEAD_FILLER.match(parts[0]):
+        parts.pop(0)
+    while parts and _TAIL_FILLER.match(parts[-1]):
+        parts.pop()
+    return ' '.join(parts).strip(' .!?,')
 # An address has a number in it, or at least two real words (a place name).
 ADDRESS_LIKE = re.compile(r'\d|[A-Za-z]{3,}\W+[A-Za-z]{3,}')
 FILLER = re.compile(r"^(?:(?:can|could|would|will) you\b.*|please\b.*|get the\b.*|okay\b.*|um+\b.*|uh+\b.*|now\b.*|oh\b.*|i (?:said|mean)\b.*)$")
 PLACE_LOOKUP_PROMPT = (
-    'Give the full street address of this place, on one line, with city and state. '
+    'The text below was spoken aloud and transcribed, so words may be misheard and it may contain filler. '
+    'Work out which real place or address is meant and give its full street address on one line, with city and state. '
     'Reply with the address only. If you do not know it, reply with the single word UNKNOWN.'
 )
 PLACE_GO = re.compile(
@@ -229,8 +245,11 @@ class Assistant:
         if change and not order and not message and not call:
             return await self._continue_place_change(session, change, text, location)
         intent = route(text, bool(order or message))
-        if intent == 'see' and LOOSE_MESSAGE.search(text.lower()) and self.memory.find_contact(text):
-            intent = 'message'  # e.g. "hey, tell my friend Tim ..." heard through a noisy microphone
+        if (intent in ('see', 'place_go', 'navigate', 'go_back', 'where_am_i', 'recall', 'help', 'timer')
+                and LOOSE_MESSAGE.search(text.lower()) and self.memory.find_contact(text)):
+            # "Message Zack that I am going home right now" names a contact, so it is a message, not a
+            # request for directions home; so is "send my location to Tim".
+            intent = 'message'
         if call and not order and not message:
             if YES.search(text.lower()):
                 intent = 'call_confirm'
@@ -466,7 +485,9 @@ class Assistant:
         if address:
             better = await self.geocode(address, *near)
             if better is not None:
-                return {**better, 'label': f'{wanted.strip().title()} ({better["label"]})'}
+                name = spoken_place(wanted)
+                label = f'{name.title()} ({better["label"]})' if name and len(name.split()) <= 5 else better['label']
+                return {**better, 'label': label}
         return found
 
     @staticmethod
@@ -522,7 +543,8 @@ class Assistant:
         reply = {'intent': 'place_set', 'heard': text, 'say': '', 'order': None, 'confirm': None, 'open_url': None,
                  'map_url': None, 'timer': None, 'warnings': [], 'detections': [], 'provider': None}
         value, name = text.lower().strip(), change['name']
-        if change['stage'] == 'confirm' and YES.search(value):
+        short_yes = len(value.split()) <= 6 and CONFIRM_ANY.search(value) and not re.search(r'\d', value) and not NO.search(value)
+        if change['stage'] == 'confirm' and (YES.search(value) or short_yes):
             found = change['found']
             self.memory.save_place(name, found['label'], found['lat'], found['lon'])
             del self._place_changes[session]
@@ -544,7 +566,7 @@ class Assistant:
                 del self._place_changes[session]
                 return await self.respond(session, text, None, 'image/jpeg', location)
             address = text.strip()[match.start(3):].strip(' .!?') if match else text.strip(' .!?')
-            address = ADDRESS_LEAD.sub('', address).strip()  # "to San Francisco ..." -> "San Francisco ..."
+            address = ADDRESS_LEAD.sub('', spoken_place(address) or address).strip()  # drop chatter and lead-in words
             # A word or two right after an offer is the end of the same address, cut off by a pause:
             # "San Francisco Bay" ... "University".
             if (change['stage'] == 'confirm' and change.get('query') and not match
