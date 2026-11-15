@@ -59,8 +59,8 @@ async def read_sign(frames: list[tuple[bytes, str]]) -> dict:
     parts = [llm.image_part(image, mime) for image, mime in frames[:MAX_FRAMES]]
     parts.append({'text': SIGN_PROMPT})
     try:
-        reading = parse_reading(await llm.gemini(parts, json_mode=True, timeout=8.0))
-        reading['provider'] = 'gemini'
+        reading = parse_reading(await llm.complete(parts, json_mode=True, timeout=8.0))
+        reading['provider'] = 'cloud'
     except Exception as error:
         reading = {'text': '', 'confidence': 0.0, 'provider': None, 'error': type(error).__name__}
     reading['experimental'] = True

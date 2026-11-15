@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import time
@@ -75,7 +77,7 @@ def system_status():
                      'menu': [{'item': name, 'price': money(cents)} for name, cents in CATALOGUE.values()]},
         'memory': {'notes': len(memory.notes(1000)), 'objects': len(memory.sightings()), 'path_points': len(memory.path())},
         'navigation': {'maps': 'openstreetmap'},
-        'speech': {'voice': 'elevenlabs' if speech.configured() else 'browser'},
+        'speech': {'voice': speech.provider() if speech.configured() else 'browser'},
         'messages': {'whatsapp': 'direct' if messaging.configured() else ('desktop_send' if messaging.desktop_enabled() else 'opens_whatsapp')},
     }
 

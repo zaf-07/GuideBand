@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Interactive demonstration of the GuideBand Micro-Whisper navigation loop.
 
-Simulates the exact timing:
-1. Instant tactile click / vibration (0 ms latency reflex trigger)
+Simulates the exact timing using the Android phone's vibrator:
+1. Instant phone tactile click / vibration (0 ms latency reflex trigger)
 2. Immediate single-syllable directional whisper (300 ms)
 """
 import subprocess
@@ -18,18 +18,18 @@ STEPS = [
 
 def run():
     print("\n" + "=" * 50)
-    print("  GuideBand: Micro-Whisper Haptic Navigation Demo")
+    print("  GuideBand: Android Phone Haptic Navigation Demo")
     print("=" * 50)
     print("Наденьте наушники или включите звук на Mac.\n")
     time.sleep(1)
 
     for trigger, word, sound, delay in STEPS:
         if trigger == "ALARM":
-            print(f"  [⚡⚡ ДВОЙНОЙ ВИБРО-ИМПУЛЬС] --->  «{word}»")
+            print(f"  [⚡⚡ ДВОЙНОЙ ИМПУЛЬС ТЕЛЕФОНА] --->  «{word}»")
             subprocess.Popen(["afplay", sound])
             subprocess.run(["say", "-v", "Milena", word])
         else:
-            print(f"  [⚡ ВИБРО-ЩЕЛЧОК 80мс]     --->  «{word}»")
+            print(f"  [⚡ ИМПУЛЬС ТЕЛЕФОНА 80мс] --->  «{word}»")
             subprocess.Popen(["afplay", sound])
             time.sleep(0.08)
             subprocess.run(["say", "-v", "Milena", word])

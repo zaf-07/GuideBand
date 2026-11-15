@@ -9,6 +9,8 @@ class GuideBandTests(unittest.TestCase):
         self.assertTrue(plan('call Alex')['requires_confirmation']);self.assertTrue(plan('read WhatsApp')['requires_confirmation'])
     def test_unknown_is_safe(self): self.assertEqual(plan('do anything')['intent'],'unknown')
     def test_capabilities_are_explicit(self):
-        caps={item['name']:item['status'] for item in status()['capabilities']};self.assertEqual(caps['live_audio'],'unverified');self.assertEqual(caps['haptics_write'],'unverified')
+        result=status();caps={item['name']:item['status'] for item in result['capabilities']}
+        self.assertEqual(result['band_number'],20);self.assertEqual(result['band_name'],'Vexo-HACK-20')
+        self.assertEqual(caps['live_audio'],'documented');self.assertEqual(caps['band_haptics'],'unavailable');self.assertEqual(caps['phone_haptics'],'implemented')
 
 if __name__=='__main__': unittest.main()

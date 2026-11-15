@@ -88,7 +88,7 @@ async def read_price(image: bytes, mime: str) -> tuple[str, int] | None:
     if not llm.configured():
         return None
     try:
-        data = json.loads(await llm.gemini([llm.image_part(image, mime), {'text': PRICE_PROMPT}], json_mode=True))
+        data = json.loads(await llm.complete([llm.image_part(image, mime), {'text': PRICE_PROMPT}], json_mode=True))
         if str(data.get('currency') or 'USD').upper() not in ('USD', '$', ''):
             return None
         cents = _cents(data.get('amount'))

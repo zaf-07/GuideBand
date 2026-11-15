@@ -29,7 +29,7 @@
       const cloud = s.vision.cloud_providers.length ? 'Gemini connected' : 'no cloud model (local answers only)';
       const detector = s.vision.detector.state === 'unavailable' ? 'detector unavailable' : 'on-device detector';
       const pay = s.payments.mode === 'stripe_test' ? 'Stripe test mode' : 'simulated payments';
-      cloudVoice = s.speech?.voice === 'elevenlabs';
+      cloudVoice = Boolean(s.speech?.voice && s.speech.voice !== 'browser');
       el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? 'ElevenLabs voice' : 'browser voice') + ' · ' + pay;
       el('liveDot').className = 'dot';
       el('qrLink').href = api + '/pay/qr.png?item=Coffee&amount=4.50';

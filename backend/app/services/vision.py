@@ -179,6 +179,13 @@ async def ask_gemini(image: bytes, mime: str, question: str, detections: list[di
     )
 
 
+async def ask_minimax(image: bytes, mime: str, question: str, detections: list[dict]) -> str:
+    return await llm.minimax(
+        [llm.image_part(image, mime), {'text': _user_prompt(question, detections)}],
+        system=SYSTEM_PROMPT,
+    )
+
+
 async def ask_groq(image: bytes, mime: str, question: str, detections: list[dict]) -> str:
     """The earlier OpenAI-compatible vision setup, kept as a fallback."""
     import httpx
@@ -211,13 +218,14 @@ async def ask_groq(image: bytes, mime: str, question: str, detections: list[dict
 # name -> (environment variable holding its key, coroutine)
 PROVIDERS = {
     'gemini': ('GEMINI_API_KEY', ask_gemini),
+    'minimax': ('MINIMAX_API_KEY', ask_minimax),
     'groq': ('GROQ_API_KEY', ask_groq),
 }
 
 
 def configured_providers() -> list[str]:
     """Cloud providers to try, in order, that have a key set."""
-    order = [name.strip() for name in os.getenv('VISION_PROVIDERS', 'gemini,groq').split(',')]
+    order = [name.strip() for name in os.getenv('VISION_PROVIDERS', 'gemini,minimax,groq').split(',')]
     return [name for name in order if name in PROVIDERS and os.getenv(PROVIDERS[name][0])]
 
 

@@ -10,12 +10,12 @@ Recommended wake phrase: **“Guide, I’m ready.”** It is short, brand-linked
 
 | Capability | Status | Evidence / decision |
 |---|---|---|
-| Built-in microphone | Confirmed product capability | Vexo says Band audio reaches its phone app over Bluetooth. Use only through the supplied SDK. |
-| Quiet haptics | Confirmed hardware capability | Product specifications confirm haptics; public write API was not found. |
-| USB connection | Confirmed on supplied unit | macOS enumerates `Vexo Open band`, VID `0x2FE3`, PID `0x0004`. Probe is read-only. |
-| Read Vexo memories | Publicly documented | OAuth 2.1 MCP, `vexo:read`, read-only. Useful for recall, not live control. |
-| Live audio SDK | Not publicly confirmed | Ask Vexo staff for hackathon SDK/examples. Phone mic is the fallback. |
-| Haptic write SDK | Not publicly confirmed | Keep a wearable adapter boundary; phone vibration/audio are fallback outputs. |
+| Built-in microphone | Verified on band 20 | Official contract: 16 kHz mono Opus, 20 ms packets. A 3-second USB test received 143 packets without storing or transmitting them. |
+| Band vibration | Not present | The official Vexo Open contract explicitly lists vibration as absent. Use Android phone haptics. |
+| USB connection | Verified on band 20 | `GET_INFO` returned band 20, firmware 1.1.0 and protocol 1.1 over `/dev/cu.usbmodem1101`. |
+| Bluetooth connection | Implemented | Exact name `Vexo-HACK-20` plus official service UUID; the kit verifies the reported band number after connecting. |
+| Deepgram live transcription | Implemented, key required | Official kit helper sends Opus directly with `mip_opt_out=true`; key only from `DEEPGRAM_API_KEY` or ignored `.env`. |
+| LED feedback | Verified on band 20 | Official `IDENTIFY` produced a four-second white flash. |
 
 ## Android feasibility
 
@@ -36,7 +36,7 @@ Recommended wake phrase: **“Guide, I’m ready.”** It is short, brand-linked
 
 ## Next slices
 
-1. Obtain the Vexo hackathon SDK and replace each `unverified` capability with a reproducible hardware test.
+1. Run the live Deepgram test after the team sets `DEEPGRAM_API_KEY`; never put the key in source or chat.
 2. Wrap the PWA as a Trusted Web Activity or move the shell native for intents, foreground location and camera.
 3. Add local wake-word detection with an explicit listening indicator and measured false-positive rate.
 4. Add on-device object detection from the prior core behind the new event contract; keep routing and vision warnings independent.

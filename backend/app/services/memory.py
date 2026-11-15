@@ -196,7 +196,7 @@ class Memory:
         context = self.context()
         if context and llm.configured():
             try:
-                text = await llm.gemini(
+                text = await llm.complete(
                     [{'text': f'Memory notes:\n{context}\n\nQuestion: {question}'}], system=RECALL_PROMPT,
                 )
                 return {'text': text, 'provider': 'gemini'}
@@ -209,7 +209,7 @@ class Memory:
         text, provider = fallback, 'local'
         if llm.configured():
             try:
-                text = await llm.gemini([llm.image_part(image, mime), {'text': SNAPSHOT_PROMPT}])
+                text = await llm.complete([llm.image_part(image, mime), {'text': SNAPSHOT_PROMPT}])
                 provider = 'gemini'
             except Exception:
                 pass
