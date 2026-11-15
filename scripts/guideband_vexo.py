@@ -94,20 +94,6 @@ def listen(transport: str, seconds: float, language: str) -> None:
             ),
         )
         print("Transcript:", text or "(no speech heard)")
-        if text:
-            try:
-                import urllib.request
-                import urllib.parse
-                import subprocess
-                data = urllib.parse.urlencode({"text": text}).encode()
-                req = urllib.request.Request("http://127.0.0.1:8000/assistant", data=data)
-                with urllib.request.urlopen(req, timeout=6) as r:
-                    res = json.loads(r.read().decode())
-                    say_text = res.get("say", "")
-                    print(f"🤖 GuideBand Assistant: {say_text}")
-                    subprocess.run(["say", "-r", "190", say_text])
-            except Exception as e:
-                print(f"(Assistant bridge notice: {e})")
 
 
 def microphone_test(transport: str, seconds: float) -> None:

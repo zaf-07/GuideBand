@@ -76,6 +76,18 @@
   pollWearableStatus();
   setInterval(pollWearableStatus, 4000);
 
+  // --- Camera Frame Snapshot Helper ---
+  async function getCameraFrameBlob() {
+    const video = $('#appVideo');
+    if (!camStream || !video || video.readyState < 2 || !video.videoWidth) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.min(video.videoWidth, 640);
+    canvas.height = Math.round(canvas.width * (video.videoHeight / video.videoWidth));
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  }
+
   // --- Vexo Band Voice Listening (BLE -> Deepgram Nova-3 -> Assistant) ---
   let isListeningBand = false;
   async function listenThroughBand(seconds = 6) {
@@ -97,10 +109,17 @@
     if (heardEl) heardEl.textContent = 'Streaming audio to Deepgram Nova-3…';
 
     try {
+      const frameBlob = await getCameraFrameBlob();
+      const body = new FormData();
+      body.append('seconds', String(seconds));
+      body.append('language', 'en');
+      if (frameBlob) {
+        body.append('image', frameBlob, 'frame.jpg');
+      }
+
       const res = await fetch(`${API}/wearable/listen`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seconds, language: 'en' })
+        body
       });
       if (res.ok) {
         const data = await res.json();
@@ -110,7 +129,7 @@
           speak(data.say);
         } else {
           heardEl.textContent = 'No speech detected on band.';
-          replyEl.textContent = 'Try speaking closer to your wrist or hold to talk.';
+          replyEl.textContent = data.say || 'Try speaking closer to your wrist or hold to talk.';
         }
       } else {
         heardEl.textContent = 'Could not stream band audio.';
@@ -180,8 +199,12 @@
   // --- Send Command to Assistant ---
   async function sendAssistantCommand(text) {
     try {
+      const frameBlob = await getCameraFrameBlob();
       const body = new FormData();
       body.append('text', text);
+      if (frameBlob) {
+        body.append('image', frameBlob, 'frame.jpg');
+      }
       const res = await fetch(`${API}/assistant`, { method: 'POST', body });
       if (res.ok) {
         const data = await res.json();

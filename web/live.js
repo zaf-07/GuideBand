@@ -480,11 +480,14 @@
       btn.disabled = true;
       micState('Listening to Vexo-HACK-20 over BLE…', 'on');
       try {
-        const res = await call('/wearable/listen', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seconds: 6 })
-        });
+        const imageBlob = await frame(640);
+        const body = new FormData();
+        body.append('seconds', '6');
+        body.append('language', 'en');
+        if (imageBlob) body.append('image', imageBlob, 'frame.jpg');
+
+        const response = await fetch(api + '/wearable/listen', { method: 'POST', body });
+        const res = await response.json();
         if (res.ok && res.text) {
           addMessage('user', '“' + res.text + '” (from wristband)');
           addMessage('guide', res.say);

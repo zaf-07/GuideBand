@@ -154,7 +154,7 @@ async def listen_band(seconds: float = 6.0, language: str = 'en') -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=seconds + 10.0)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=seconds + 14.0)
         out_text = stdout.decode() if stdout else ''
         transcript = ''
         for line in out_text.splitlines():
@@ -164,6 +164,6 @@ async def listen_band(seconds: float = 6.0, language: str = 'en') -> str:
         if transcript == '(no speech heard)':
             return ''
         return transcript
-    except Exception as e:
-        return f'(error: {e})'
+    except Exception:
+        return ''
 

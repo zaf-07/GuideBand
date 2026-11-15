@@ -262,16 +262,38 @@ async def post_wearable_refresh():
     await refresh_band_state()
     return wearable_status()
 
-class WearableListenRequest(BaseModel):
-    seconds: float = 6.0
-    language: str = 'en'
-
 @app.post('/wearable/listen')
-async def post_wearable_listen(req: WearableListenRequest = WearableListenRequest()):
-    transcript = await listen_band(seconds=req.seconds, language=req.language)
+async def post_wearable_listen(request: Request):
+    content_type = request.headers.get('content-type', '')
+    seconds = 6.0
+    language = 'en'
+    image_bytes = None
+    mime = 'image/jpeg'
+    if 'multipart/form-data' in content_type:
+        form = await request.form()
+        try:
+            seconds = float(form.get('seconds', 6.0))
+        except (ValueError, TypeError):
+            seconds = 6.0
+        language = str(form.get('language', 'en'))
+        upload = form.get('image')
+        if hasattr(upload, 'read'):
+            raw = await upload.read(MAX_IMAGE_BYTES + 1)
+            if len(raw) <= MAX_IMAGE_BYTES:
+                image_bytes = raw
+            mime = getattr(upload, 'content_type', 'image/jpeg') or 'image/jpeg'
+    elif 'application/json' in content_type:
+        try:
+            data = await request.json()
+            seconds = float(data.get('seconds', 6.0))
+            language = str(data.get('language', 'en'))
+        except Exception:
+            pass
+
+    transcript = await listen_band(seconds=seconds, language=language)
     if not transcript:
         return {'ok': False, 'text': '', 'say': 'No speech heard from the band.', 'action': None}
-    reply = await assistant.respond('wearable', transcript, None, 'image/jpeg', None)
+    reply = await assistant.respond('wearable', transcript, image_bytes, mime, None)
     return {
         'ok': True,
         'text': transcript,

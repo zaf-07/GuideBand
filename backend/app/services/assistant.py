@@ -44,6 +44,7 @@ READ_QUESTION = (
     'Say only the text itself. If there is no readable text, say that you cannot see any text.'
 )
 HELP = re.compile(r'\bwhat can you do\b|^\W*help\b')
+GREETING = re.compile(r'^\W*(hi|hello|hey|good (morning|afternoon|evening)|howdy)\b')
 
 HELP_TEXT = (
     'I can tell you what is in front of you, read text, remember where things are, tell you where you are, '
@@ -85,6 +86,8 @@ def route(text: str, has_pending: bool = False) -> str:
         return 'bridge'
     if HELP.search(value):
         return 'help'
+    if GREETING.search(value):
+        return 'greeting'
     if YES.search(value) or NO.search(value):
         return 'nothing_pending'
     return 'see'
@@ -179,6 +182,8 @@ class Assistant:
             reply['say'] = 'Bridge is on. I will speak signs I can read, and show what you say as large text.'
         elif intent == 'help':
             reply['say'] = HELP_TEXT
+        elif intent == 'greeting':
+            reply['say'] = 'Hello! I am GuideBand. I can describe what is in front of you, navigate, read text, or remember your items.'
         elif image is None:
             reply['say'] = 'I need the camera for that. Please turn the camera on.'
         else:
