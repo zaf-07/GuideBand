@@ -623,7 +623,12 @@
       el('signMeter').style.width = Math.round(state.progress * 100) + '%';
       el('signOut').textContent = state.text.trim() || '—';
     },
-    onWord: word => { if (word) { speak(word.toLowerCase(), { force: true }); buzz(60); } },
+    onWord: word => {
+      if (!word) return;
+      // SOS is the Signal for Help: say it clearly, and make it felt.
+      if (word === 'SOS') { speak('S O S. This person is asking for help.', { force: true }); buzz([400, 150, 400, 150, 400]); return; }
+      speak(word.toLowerCase(), { force: true }); buzz(60);
+    },
   };
   async function syncSigns() {
     if (activeTab !== 'bridge' || !stream) {

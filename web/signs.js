@@ -108,7 +108,7 @@ window.GuideSigns = (() => {
     }
     if (fingersUp === 4 && s.thumb === 'up') return 'Hello';
     // Four fingers up with the thumb folded across the palm: the first move of the Signal for Help.
-    if (fingersUp === 4 && s.thumb === 'down') return 'Help';
+    if (fingersUp === 4 && s.thumb === 'down') return 'SOS';
     if (up('index') && up('middle') && up('ring') && down('pinky')) return 'Water';
     if (up('index') && up('middle') && down('ring') && down('pinky')) return 'Peace';
     if (up('pinky') && s.thumb === 'up' && down('index') && down('middle') && down('ring')) return 'Call me';
@@ -199,12 +199,18 @@ window.GuideSigns = (() => {
       thumbUp: fingersDown === 4 && shape.thumb === 'up' && shape.thumbUpward > 0.55,
       snap: (dist(p[4], p[8]) + dist(p[4], p[12])) / 2 / shape.size, // index and middle against the thumb
       ringPinkyDown: down('ring') && down('pinky'),
+      palmThumbIn: fingersUp === 4 && shape.thumb === 'down',          // open palm, thumb folded across it
+      fistThumbIn: fingersDown >= 3 && shape.thumb !== 'up',            // fingers closed down over the thumb
     });
     while (trail.length && now - trail[0].t > 2000) trail.shift();
     if (trail.length < 8 || now < motionQuietUntil) return '';
     const size = shape.size, recent = trail.slice(-16), latest = trail[trail.length - 1];
     const share = (frames, key) => frames.filter(f => f[key]).length / frames.length;
 
+    // SOS, the Signal for Help: show the palm with the thumb folded in, then close the fingers over the thumb.
+    const before = trail.slice(-24, -4), after = trail.slice(-4);
+    if (after.filter(f => f.fistThumbIn).length >= 3 && before.filter(f => f.palmThumbIn).length >= 3
+        && span(trail.slice(-16).map(f => f.x)) < 0.7 * size) return 'SOS';
     // HELP: a thumbs-up fist lifted upward.
     if (share(recent, 'thumbUp') > 0.6 && recent[0].y - latest.y > 0.6 * size) return 'Help';
     // YES: a fist nodding up and down.
