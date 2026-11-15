@@ -8,7 +8,7 @@
   <meta name="description" content="GuideBand is a hands-free AI assistant for blind and low-vision people. It sees hazards, remembers what it saw, and acts for you — only after a spoken yes.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="landing.css">
-  <link rel="stylesheet" href="live.css?v=13">
+  <link rel="stylesheet" href="live.css?v=15">
   <title>GuideBand — The AI that sees, remembers and acts for you</title>
 </head>
 <body>
@@ -202,20 +202,6 @@
                 <button class="btn btn-primary" type="button" id="camBtn">Turn camera on</button>
                 <button class="btn btn-glass glass" type="button" id="flipBtn">Flip camera</button>
               </div>
-              <label class="toggle"><input type="checkbox" id="micToggle" checked><span>Microphone always on</span></label>
-              <div class="mic-source">
-                <label for="micSource">Listen through</label>
-                <select id="micSource">
-                  <option value="">This device (browser speech)</option>
-                </select>
-                <button class="link-inline" type="button" id="micRefresh">Find bracelet or other microphones</button>
-              </div>
-              <label class="toggle"><input type="checkbox" id="wakeToggle"><span>Only act when I say “Guide” first (for noisy rooms)</span></label>
-              <label class="toggle"><input type="checkbox" id="hazardToggle" checked><span>Speak hazard warnings</span></label>
-              <label class="toggle"><input type="checkbox" id="voiceToggle" checked><span>Speak replies</span></label>
-              <label class="toggle"><input type="checkbox" id="autoDescribe"><span>Tell me when the scene changes</span></label>
-              <label class="toggle"><input type="checkbox" id="locationToggle"><span>Use my location for directions and memory</span></label>
-              <label class="toggle"><input type="checkbox" id="autoRemember"><span>Remember what I see, every 20 seconds</span></label>
             </div>
           </div>
 
@@ -226,6 +212,7 @@
               <button class="tab" role="tab" type="button" id="tab-bridge" aria-controls="panel-bridge" aria-selected="false" tabindex="-1">Bridge</button>
               <button class="tab" role="tab" type="button" id="tab-family" aria-controls="panel-family" aria-selected="false" tabindex="-1">Family</button>
               <button class="tab" role="tab" type="button" id="tab-memory" aria-controls="panel-memory" aria-selected="false" tabindex="-1">Memory</button>
+              <button class="tab" role="tab" type="button" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
             </div>
             <p class="mic-state" id="micState" role="status" data-state="off">Microphone off</p>
 
@@ -310,6 +297,48 @@
                 <button class="btn btn-glass glass btn-small" type="button" id="memoryRefresh">Refresh</button>
                 <button class="btn btn-glass glass btn-small" type="button" id="memoryClear">Erase memory</button>
               </div>
+
+            <div class="panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
+              <section class="settings-card" aria-labelledby="setBand">
+                <h3 id="setBand">Vexo band</h3>
+                <p class="settings-status"><span class="dot dot-off" id="bandDot"></span><strong id="bandStatus" role="status">Not checked yet</strong></p>
+                <p class="hint" id="bandDetail">Double-tap the band so its light blinks blue, then check the connection.</p>
+                <div class="row wrap">
+                  <button class="btn btn-primary btn-small" type="button" id="bandCheck">Check connection</button>
+                  <button class="btn btn-glass glass btn-small" type="button" id="bandListen">Speak through the band</button>
+                </div>
+              </section>
+
+              <section class="settings-card" aria-labelledby="setAccess">
+                <h3 id="setAccess">Access</h3>
+                <ul class="permissions">
+                  <li><span>Microphone</span><em id="permMic">—</em><button class="btn btn-glass glass btn-small" type="button" id="allowMic">Allow</button></li>
+                  <li><span>Camera</span><em id="permCamera">—</em><button class="btn btn-glass glass btn-small" type="button" id="allowCamera">Allow</button></li>
+                  <li><span>Location (GPS)</span><em id="permLocation">—</em><button class="btn btn-glass glass btn-small" type="button" id="allowLocation">Allow</button></li>
+                </ul>
+                <button class="btn btn-primary btn-small" type="button" id="allowAll">Allow everything</button>
+              </section>
+
+              <section class="settings-card" aria-labelledby="setOptions">
+                <h3 id="setOptions">Options</h3>
+                <div class="settings-options">
+              <label class="toggle"><input type="checkbox" id="micToggle" checked><span>Microphone always on</span></label>
+              <div class="mic-source">
+                <label for="micSource">Listen through</label>
+                <select id="micSource">
+                  <option value="">This device (browser speech)</option>
+                </select>
+                <button class="link-inline" type="button" id="micRefresh">Find bracelet or other microphones</button>
+              </div>
+              <label class="toggle"><input type="checkbox" id="wakeToggle"><span>Only act when I say “Guide” first (for noisy rooms)</span></label>
+              <label class="toggle"><input type="checkbox" id="hazardToggle" checked><span>Speak hazard warnings</span></label>
+              <label class="toggle"><input type="checkbox" id="voiceToggle" checked><span>Speak replies</span></label>
+              <label class="toggle"><input type="checkbox" id="autoDescribe"><span>Tell me when the scene changes</span></label>
+              <label class="toggle"><input type="checkbox" id="locationToggle"><span>Use my location for directions and memory</span></label>
+              <label class="toggle"><input type="checkbox" id="autoRemember"><span>Remember what I see, every 20 seconds</span></label>
+                </div>
+              </section>
+            </div>
             </div>
           </div>
         </div>

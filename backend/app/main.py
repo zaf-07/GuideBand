@@ -236,6 +236,24 @@ async def bridge_sign(images: list[UploadFile] = File(...)):
     frames = [(await read_image(image), image.content_type) for image in images[:bridge.MAX_FRAMES]]
     return await bridge.read_sign(frames)
 
+# ---------- Band microphone ----------
+# scripts/band_assistant.py posts each sentence heard through the Vexo band here; the open
+# live demo polls for them and treats them exactly like speech from the laptop microphone.
+band_heard: list[dict] = []
+band_counter = 0
+
+@app.post('/band/heard', status_code=201)
+def band_heard_add(text: str = Form(..., min_length=1, max_length=300)):
+    global band_counter
+    band_counter += 1
+    band_heard.append({'id': band_counter, 'text': text.strip()})
+    del band_heard[:-20]
+    return {'id': band_counter}
+
+@app.get('/band/heard')
+def band_heard_list(after: int = 0):
+    return {'last': band_counter, 'items': [item for item in band_heard if item['id'] > after]}
+
 # ---------- Tasks and events ----------
 
 @app.post('/tasks', status_code=201)
@@ -269,8 +287,15 @@ async def post_wearable_listen(request: Request):
     language = 'multi'
     image_bytes = None
     mime = 'image/jpeg'
+    session = 'wearable'
+    location = None
     if 'multipart/form-data' in content_type:
         form = await request.form()
+        session = str(form.get('session') or 'wearable')[:64]
+        try:
+            location = (float(form['lat']), float(form['lon']))
+        except (KeyError, ValueError, TypeError):
+            location = None
         try:
             seconds = float(form.get('seconds', 7.0))
         except (ValueError, TypeError):
@@ -301,8 +326,10 @@ async def post_wearable_listen(request: Request):
             'say': 'No speech was transcribed. Keep the band 10–20 cm from your mouth and speak after the solid blue light appears.',
             'action': None,
         }
-    reply = await assistant.respond('wearable', transcript, image_bytes, mime, None)
+    # Same session and location as the page, so a spoken yes confirms what the page is showing.
+    reply = await assistant.respond(session, transcript, image_bytes, mime, location)
     return {
+        **reply,
         'ok': True,
         'text': transcript,
         'say': reply.get('say', ''),

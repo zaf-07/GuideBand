@@ -32,6 +32,7 @@
       cloudVoice = Boolean(s.speech?.voice && s.speech.voice !== 'browser');
       el('liveStatus').textContent = 'Connected · ' + detector + ' · ' + cloud + ' · ' + (cloudVoice ? ({ deepgram: 'Deepgram', elevenlabs: 'ElevenLabs', minimax: 'MiniMax' }[s.speech.voice] || 'cloud') + ' voice' : 'browser voice') + ' · ' + pay;
       el('liveDot').className = 'dot';
+      showBand(s.wearable);
       if (s.wearable?.connected) {
         const wb = s.wearable;
         const bPct = wb.battery?.percent != null ? ` · ${wb.battery.percent}%` : '';
@@ -266,6 +267,40 @@
     return item;
   }
 
+  let retryWithLocation = '';
+  /** Show and speak one assistant reply, wherever the request came from. */
+  function showReply(reply, asked) {
+    let meta = reply.provider ? sources[reply.provider] + ' · ' + ((reply.latency_ms || 0) / 1000).toFixed(1) + ' s' : '';
+    if (reply.intent === 'pay_confirm' && reply.order) {
+      meta = reply.order.mode === 'stripe_test' ? 'Stripe test payment · ' + reply.order.status + ' · ' + reply.order.payment_id : 'Simulated payment';
+    }
+    // If the answer needs a location we do not have yet, ask for it and repeat the request once it arrives.
+    if (!position && asked && /location on/i.test(reply.say || '')) {
+      retryWithLocation = asked;
+      addMessage('guide', 'I need your location for that. Please allow location — I will continue as soon as I have it.');
+      speak('Please allow location.');
+      enableLocation();
+      return;
+    }
+    const item = addMessage('guide', reply.say, meta);
+    speak(reply.say);
+    el('confirmBar').hidden = !reply.confirm;
+    if (reply.confirm) { el('confirmText').textContent = reply.confirm; buzz([80, 80, 80]); }
+    if (reply.open_url) {
+      // WhatsApp only sends when the person presses Send, so hand them the prepared chat.
+      const link = document.createElement('a');
+      link.className = 'btn btn-primary btn-small msg-link';
+      link.href = reply.open_url; link.target = '_blank'; link.rel = 'noopener';
+      link.textContent = 'Open WhatsApp';
+      item.append(link);
+      window.open(reply.open_url, '_blank', 'noopener');
+    }
+    if (reply.intent === 'nav_stop' || (reply.intent === 'navigate' && !reply.navigating)) el('navStatus').textContent = '';
+    if (reply.navigating) el('navStatus').textContent = 'Directions are on. Keep walking — I will speak each turn.';
+    if (reply.intent === 'bridge') selectTab('bridge');
+    if (activeTab === 'memory') loadMemory();
+  }
+
   let queued = '';
   async function ask(text) {
     text = text.trim();
@@ -285,27 +320,7 @@
       addLocation(body);
       const reply = await call('/assistant', { method: 'POST', body });
       pendingItem.remove();
-      let meta = reply.provider ? sources[reply.provider] + ' · ' + (reply.latency_ms / 1000).toFixed(1) + ' s' : '';
-      if (reply.intent === 'pay_confirm' && reply.order) {
-        meta = reply.order.mode === 'stripe_test' ? 'Stripe test payment · ' + reply.order.status + ' · ' + reply.order.payment_id : 'Simulated payment';
-      }
-      const item = addMessage('guide', reply.say, meta);
-      speak(reply.say);
-      el('confirmBar').hidden = !reply.confirm;
-      if (reply.confirm) { el('confirmText').textContent = reply.confirm; buzz([80, 80, 80]); }
-      if (reply.open_url) {
-        // WhatsApp only sends when the person presses Send, so hand them the prepared chat.
-        const link = document.createElement('a');
-        link.className = 'btn btn-primary btn-small msg-link';
-        link.href = reply.open_url; link.target = '_blank'; link.rel = 'noopener';
-        link.textContent = 'Open WhatsApp';
-        item.append(link);
-        window.open(reply.open_url, '_blank', 'noopener');
-      }
-      if (reply.intent === 'nav_stop' || (reply.intent === 'navigate' && !reply.navigating)) el('navStatus').textContent = '';
-      if (reply.navigating) el('navStatus').textContent = 'Directions are on. Keep walking — I will speak each turn.';
-      if (reply.intent === 'bridge') selectTab('bridge');
-      if (activeTab === 'memory') loadMemory();
+      showReply(reply, text);
     } catch (error) {
       pendingItem.remove();
       addMessage('error', error.message || 'Something went wrong.');
@@ -326,8 +341,9 @@
     el('micState').dataset.state = kind;
   }
   let interimTimer = null, handledText = '', handledAt = 0;
+  let heardThrough = '';
   function heardNote(text, note) {
-    micState('Heard: “' + text + '”' + (note ? ' — ' + note : ''), 'on');
+    micState('Heard' + heardThrough + ': “' + text + '”' + (note ? ' — ' + note : ''), 'on');
   }
   function onInterim(text) {
     clearTimeout(interimTimer);
@@ -341,9 +357,10 @@
     clearTimeout(interimTimer);
     handleSpeech(text);
   }
-  function handleSpeech(text) {
+  function handleSpeech(text, source) {
     el('askInput').placeholder = micPlaceholder();
     if (!text) return;
+    heardThrough = source === 'band' ? ' (through the Vexo band)' : '';
     const key = plain(text);
     if (key === handledText && Date.now() - handledAt < 6000) return; // the same sentence, delivered twice
     handledText = key; handledAt = Date.now();
@@ -485,14 +502,15 @@
         body.append('seconds', '7');
         body.append('language', 'multi');
         if (imageBlob) body.append('image', imageBlob, 'frame.jpg');
+        body.append('session', session);
+        addLocation(body);
 
         const response = await fetch(api + '/wearable/listen', { method: 'POST', body });
         const res = await response.json();
         btn.textContent = 'Processing…';
         if (res.ok && res.text) {
           addMessage('user', '“' + res.text + '” (from wristband)');
-          addMessage('guide', res.say);
-          speak(res.say);
+          showReply(res, res.text);
         } else {
           addMessage('guide', res.detail || res.say || 'No speech was transcribed. Keep the band close to your mouth and speak after the solid blue light appears.');
         }
@@ -621,8 +639,18 @@
   function addLocation(body) {
     if (position) { body.append('lat', position.lat); body.append('lon', position.lon); }
   }
+  function enableLocation() {
+    if (el('locationToggle').checked) return;
+    el('locationToggle').checked = true;
+    el('locationToggle').onchange();
+  }
   function onPosition(fix) {
+    const first = !position;
     position = { lat: fix.coords.latitude, lon: fix.coords.longitude };
+    if (first) {
+      refreshPermissions();
+      if (retryWithLocation) { const again = retryWithLocation; retryWithLocation = ''; ask(again); }
+    }
     if (!online || Date.now() - lastSent < 4000) return;
     lastSent = Date.now();
     const body = new FormData();
@@ -715,6 +743,77 @@
     call('/memory/observe', { method: 'POST', body }).then(() => { if (activeTab === 'memory') loadMemory(); }).catch(() => {});
   }, 20000);
 
+  // ---------- Vexo band microphone ----------
+  // Sentences heard through the band arrive from the service and are handled like any other speech.
+  let bandCursor = -1;
+  setInterval(async () => {
+    if (!online) return;
+    try {
+      const heard = await call('/band/heard?after=' + Math.max(0, bandCursor));
+      if (bandCursor < 0) { bandCursor = heard.last; return; } // ignore anything said before this page opened
+      bandCursor = heard.last;
+      for (const item of heard.items) {
+        el('micState').dataset.band = 'on';
+        handleSpeech(item.text, 'band');
+      }
+    } catch {}
+  }, 700);
+
+  // ---------- Settings: band connection and permissions ----------
+  function showBand(band) {
+    const connected = Boolean(band && band.connected);
+    el('bandDot').className = 'dot' + (connected ? '' : ' dot-bad');
+    el('bandStatus').textContent = connected ? 'Connected — ' + (band.band_name || 'Vexo band') : 'Not connected';
+    el('bandDetail').textContent = connected
+      ? 'Battery ' + (band.battery?.percent ?? '?') + '% · ' + String(band.transport || 'ble').toUpperCase() + ' · firmware ' + (band.firmware || '?')
+      : 'Double-tap the band so its light blinks blue, keep it close, and close anything else connected to it. Then check again.';
+  }
+  el('bandCheck').onclick = async () => {
+    const button = el('bandCheck');
+    button.disabled = true;
+    button.textContent = 'Checking… about 10 seconds';
+    el('bandStatus').textContent = 'Looking for the band…';
+    try { showBand(await call('/wearable/refresh', { method: 'POST' })); }
+    catch (error) { el('bandStatus').textContent = 'Could not check: ' + error.message; }
+    button.disabled = false;
+    button.textContent = 'Check connection';
+  };
+  el('bandListen').onclick = () => { selectTab('assistant'); el('webBandListenBtn')?.click(); };
+
+  const permissionText = { granted: 'Allowed', prompt: 'Not allowed yet', denied: 'Blocked — allow it from the lock icon in the address bar', on: 'On', unknown: 'Ask to find out' };
+  async function refreshPermissions() {
+    const rows = [['camera', 'permCamera', () => Boolean(stream)], ['microphone', 'permMic', () => Boolean(recognizer || capture)], ['geolocation', 'permLocation', () => Boolean(position)]];
+    for (const [name, id, active] of rows) {
+      let state = 'unknown';
+      try { state = (await navigator.permissions.query({ name })).state; } catch {}
+      if (active()) state = 'on';
+      el(id).textContent = permissionText[state] || state;
+      el(id).dataset.state = state;
+    }
+  }
+  el('allowCamera').onclick = async () => {
+    if (!stream) { try { await startCamera(); } catch (error) { cameraError(error); } }
+    refreshPermissions();
+  };
+  el('allowMic').onclick = async () => {
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach(track => track.stop());
+      micBlocked = false;
+      el('micToggle').checked = true;
+      startMic();
+    } catch {}
+    refreshPermissions();
+  };
+  el('allowLocation').onclick = () => { enableLocation(); setTimeout(refreshPermissions, 2000); };
+  el('allowAll').onclick = async () => {
+    await el('allowMic').onclick();
+    await el('allowCamera').onclick();
+    el('allowLocation').onclick();
+  };
+  // Location that was allowed before is switched on by itself, so directions work straight away.
+  navigator.permissions?.query({ name: 'geolocation' }).then(permission => { if (permission.state === 'granted') enableLocation(); }).catch(() => {});
+
   // ---------- Tabs ----------
   const tabs = [...document.querySelectorAll('#live .tab')];
   function selectTab(name) {
@@ -728,6 +827,7 @@
     el('askInput').placeholder = micPlaceholder();
     if (name === 'memory') loadMemory();
     if (name === 'family') loadContacts();
+    if (name === 'settings') refreshPermissions();
     if (name === 'bridge') el('liveWarning').textContent = '';
     syncSigns();
     startMic(); // switching tabs never leaves the microphone off

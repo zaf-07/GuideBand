@@ -162,3 +162,17 @@
 .mic-source label { font-weight: 600; color: var(--muted); }
 .mic-source select { min-height: 42px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--glass-border); background: var(--glass-strong); color: var(--ink); font: 500 15px/1 var(--font); max-width: 100%; }
 .mic-source .link-inline { justify-self: start; }
+
+/* Settings tab */
+.settings-card { display: grid; gap: 10px; padding: 16px 18px; border-radius: 20px; background: var(--glass); border: 1px solid var(--glass-border); }
+.settings-card h3 { font-size: 17px; font-weight: 700; }
+.settings-status { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.permissions { display: grid; gap: 8px; }
+.permissions li { display: grid; grid-template-columns: minmax(96px, auto) 1fr auto; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
+.permissions em { font-style: normal; font-weight: 500; color: var(--muted); }
+.permissions em[data-state="granted"], .permissions em[data-state="on"] { color: var(--accent); font-weight: 700; }
+.permissions em[data-state="denied"] { color: #e5484d; }
+.settings-options { display: grid; gap: 12px; }
+.settings-card .btn { justify-self: start; }
+.tabs { overflow-x: auto; }
+.tab { padding: 0 10px; white-space: nowrap; }

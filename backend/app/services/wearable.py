@@ -119,7 +119,7 @@ def status() -> dict:
     }
 
 
-async def refresh_band_state(timeout: float = 6.0) -> dict:
+async def refresh_band_state(timeout: float = 25.0) -> dict:  # a Windows BLE scan takes about 10 s
     """Query Vexo-HACK-20 over BLE asynchronously to update live state."""
     global _live_state
     script = ROOT / 'scripts' / 'guideband_vexo.py'
