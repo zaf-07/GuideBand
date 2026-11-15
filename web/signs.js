@@ -147,8 +147,113 @@ window.GuideSigns = (() => {
     emit(guess.label, guess.confidence, Math.min(1, candidateFrames / HOLD_FRAMES));
   }
 
+  // ----- ASL signs with movement (ported from the GuideLens recogniser) -----
+  // Real ASL signs are a handshape plus a movement: YES is a fist that nods, NO is two fingers
+  // snapping onto the thumb, THANK YOU is a flat hand moving down and away from the chin.
+  // The last two seconds of the hand are kept and checked for those movements.
+  const trail = [];
+  let lastMotion = '', lastMotionAt = 0, motionQuietUntil = 0;
+
+  function reversals(values, step) {
+    let changes = 0, direction = 0;
+    for (let i = 1; i < values.length; i++) {
+      const delta = values[i] - values[i - 1];
+      if (Math.abs(delta) < step) continue;
+      const now = Math.sign(delta);
+      if (direction && now !== direction) changes++;
+      direction = now;
+    }
+    return changes;
+  }
+  const span = values => Math.max(...values) - Math.min(...values);
+  /** How far round a circle the points travel, in radians, and the circle's radius. */
+  function circling(points) {
+    const cx = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+    const cy = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+    let total = 0, last = null, radius = 0;
+    for (const p of points) {
+      const angle = Math.atan2(p.y - cy, p.x - cx);
+      if (last !== null) {
+        let delta = angle - last;
+        if (delta > Math.PI) delta -= 2 * Math.PI;
+        if (delta < -Math.PI) delta += 2 * Math.PI;
+        total += delta;
+      }
+      last = angle;
+      radius += Math.hypot(p.x - cx, p.y - cy) / points.length;
+    }
+    const wide = span(points.map(q => q.x)), tall = span(points.map(q => q.y));
+    const round = Math.min(wide, tall) / (Math.max(wide, tall) || 1e-6); // 1 = a circle, 0 = a straight line
+    return { angle: Math.abs(total), radius, round };
+  }
+
+  function readMotion(p, now) {
+    const shape = handShape(p);
+    const up = name => shape[name] === 'up', down = name => shape[name] === 'down';
+    const fingersUp = ['index', 'middle', 'ring', 'pinky'].filter(up).length;
+    const fingersDown = ['index', 'middle', 'ring', 'pinky'].filter(down).length;
+    trail.push({
+      t: now, x: p[0].x, y: p[0].y, size: shape.size, indexX: p[8].x,
+      fist: fingersDown === 4, open: fingersUp === 4,
+      point: up('index') && fingersUp === 1,
+      thumbUp: fingersDown === 4 && shape.thumb === 'up' && shape.thumbUpward > 0.55,
+      snap: (dist(p[4], p[8]) + dist(p[4], p[12])) / 2 / shape.size, // index and middle against the thumb
+      ringPinkyDown: down('ring') && down('pinky'),
+    });
+    while (trail.length && now - trail[0].t > 2000) trail.shift();
+    if (trail.length < 8 || now < motionQuietUntil) return '';
+    const size = shape.size, recent = trail.slice(-16), latest = trail[trail.length - 1];
+    const share = (frames, key) => frames.filter(f => f[key]).length / frames.length;
+
+    // HELP: a thumbs-up fist lifted upward.
+    if (share(recent, 'thumbUp') > 0.6 && recent[0].y - latest.y > 0.6 * size) return 'Help';
+    // YES: a fist nodding up and down.
+    if (share(recent, 'fist') > 0.6 && share(recent, 'thumbUp') < 0.4) {
+      // SORRY: a fist circling on the chest.
+      const circle = circling(trail.slice(-20));
+      if (circle.round > 0.55 && circle.angle > 2.6 && circle.radius > 0.14 * size) return 'Sorry';
+      const ys = recent.map(f => f.y), xs = recent.map(f => f.x);
+      if (reversals(ys, 0.04 * size) >= 2 && span(ys) > 0.22 * size && span(xs) < 0.6 * span(ys)) return 'Yes';
+    }
+    // NO: index and middle finger snapping shut onto the thumb, or a wagging index finger.
+    if (latest.ringPinkyDown && !latest.fist) {
+      const before = Math.max(...trail.slice(-14, -3).map(f => f.snap)), after = Math.min(...trail.slice(-3).map(f => f.snap));
+      if (before > 0.75 && after < 0.42) return 'No';
+    }
+    if (share(recent, 'point') > 0.6) {
+      const xs = recent.map(f => f.indexX);
+      if (reversals(xs, 0.04 * size) >= 2 && span(xs) > 0.3 * size) return 'No';
+    }
+    if (share(recent, 'open') > 0.6) {
+      const xs = recent.map(f => f.x), ys = recent.map(f => f.y);
+      // STOP: the flat hand pushed towards the camera, so it grows quickly.
+      const earlier = Math.min(...trail.slice(-12, -4).map(f => f.size));
+      if (earlier > 0 && latest.size / earlier > 1.28) return 'Stop';
+      // PLEASE: a flat hand circling on the chest.
+      const circle = circling(trail.slice(-20));
+      if (circle.round > 0.55 && circle.angle > 2.8 && circle.radius > 0.14 * size) return 'Please';
+      // HELLO: a flat hand waving side to side.
+      if (reversals(xs, 0.05 * size) >= 2 && span(xs) > 0.45 * size && span(ys) < 0.6 * size) return 'Hello';
+      // THANK YOU: a flat hand moving straight down, away from the chin.
+      const top = Math.min(...trail.slice(-16, -4).map(f => f.y));
+      if (latest.y - top > 0.75 * size && span(xs) < 0.5 * size) return 'Thank you';
+    }
+    return '';
+  }
+
   function stepWords(points, now) {
-    votes.push(points ? readWord(points) : '');
+    if (!points) trail.length = 0;
+    const motion = points ? readMotion(points, now) : '';
+    if (motion && (motion !== lastMotion || now - lastMotionAt > 2500)) {
+      lastMotion = motion; lastMotionAt = now; motionQuietUntil = now + 1500;
+      trail.length = 0; votes = []; heldWord = motion; lastWord = motion;
+      spelled = (spelled + ' ' + motion).trim().split(' ').slice(-12).join(' ');
+      handlers.onWord?.(motion, 0.92);
+      return emit(motion, 0.92, 1);
+    }
+    // Still handshapes (I love you, OK, peace...) need a steady hand, and wait a moment after a moving sign.
+    const steady = trail.length >= 6 && Math.hypot(span(trail.slice(-8).map(f => f.x)), span(trail.slice(-8).map(f => f.y))) < 0.3 * trail[trail.length - 1].size;
+    votes.push(points && steady && now - lastMotionAt > 1500 ? readWord(points) : '');
     if (votes.length > WINDOW) votes.shift();
     const counts = {};
     for (const vote of votes) if (vote) counts[vote] = (counts[vote] || 0) + 1;
@@ -157,8 +262,7 @@ window.GuideSigns = (() => {
     // A sign that is simply being held is said once. It may be said again only after the hand
     // has gone away or has shown something else for a moment.
     const empty = votes.filter(vote => !vote).length;
-    if (!word || (word !== lastWord && count < 3 && empty >= WINDOW - 3)) heldWord = '';
-    if (empty === WINDOW) { heldWord = ''; lastWord = ''; }
+    if (!points && empty === WINDOW) { heldWord = ''; lastWord = ''; }
     if (word && count >= WORD_VOTES && word !== heldWord) {
       heldWord = word; lastWord = word; lastWordAt = now;
       spelled = (spelled + ' ' + word).trim().split(' ').slice(-12).join(' ');
@@ -216,5 +320,7 @@ window.GuideSigns = (() => {
     setMode(next) { mode = next; votes = []; heldWord = ''; candidate = ''; candidateFrames = 0; },
     clear() { spelled = ''; wordStart = 0; lastLetter = ''; lastWord = ''; heldWord = ''; emit('', 0, 0); },
     readWord, // exposed so the rules can be checked without a camera
+    feed(points, now) { let said = ''; const keep = handlers; handlers = { onWord: word => { said = word; } };
+      stepWords(points, now); handlers = keep; return said; },
   };
 })();
